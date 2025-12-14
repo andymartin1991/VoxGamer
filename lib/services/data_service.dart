@@ -1,24 +1,19 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:flutter/foundation.dart'; // Para kIsWeb y debugPrint
+import 'package:flutter/foundation.dart'; 
 import '../models/steam_game.dart';
 import 'database_helper.dart';
 
 class DataService {
   static const String _dataUrl = 'https://raw.githubusercontent.com/andymartin1991/SteamDataScraper/main/juegos_nuevos.json';
   
-  // Instancia de DB Helper solo para móvil
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
-
-  // Caché en memoria exclusiva para Web
   List<SteamGame> _webCache = [];
 
   Future<bool> needsUpdate() async {
     if (kIsWeb) {
-      // En Web siempre necesitamos cargar los datos al inicio porque no hay persistencia
       return _webCache.isEmpty;
     } else {
-      // En móvil comprobamos si la DB está vacía
       final count = await _dbHelper.countGames();
       return count == 0;
     }
@@ -35,7 +30,6 @@ class DataService {
   Future<void> syncGames() async {
     try {
       debugPrint('Iniciando descarga de juegos (${kIsWeb ? "Web Mode" : "Native Mode"})...');
-      // Timestamp anti-caché
       final uri = Uri.parse('$_dataUrl?t=${DateTime.now().millisecondsSinceEpoch}');
       final response = await http.get(uri);
 
@@ -67,26 +61,49 @@ class DataService {
     return parsed.map<SteamGame>((json) => SteamGame.fromJson(json)).toList();
   }
   
-  Future<List<SteamGame>> getLocalGames({int limit = 20, int offset = 0, String? query}) async {
+  Future<List<SteamGame>> getLocalGames({
+    int limit = 20, 
+    int offset = 0, 
+    String? query,
+    String? voiceLanguage
+  }) async {
     if (kIsWeb) {
-      // Implementación en memoria para Web
       var filtered = _webCache;
       
-      // Filtrado
+      // Filtrado Búsqueda (sobre cleanTitle)
       if (query != null && query.isNotEmpty) {
-        final q = query.toLowerCase();
-        filtered = _webCache.where((g) => g.title.toLowerCase().contains(q)).toList();
+        String cleanQuery = SteamGame(
+          id: 0, title: query, languages: [], voices: []
+        ).cleanTitle;
+        
+        filtered = filtered.where((g) => g.cleanTitle.contains(cleanQuery)).toList();
       }
 
-      // Paginación simulada
+      // Filtro de Voces
+      if (voiceLanguage != null && voiceLanguage != 'Cualquiera') {
+        filtered = filtered.where((g) => 
+          g.voices.any((v) => v.toLowerCase().contains(voiceLanguage.toLowerCase()))
+        ).toList();
+      }
+
+      // Ordenamiento Descendente por Fecha
+      // Hacemos una copia para no alterar el orden original de la caché si no es necesario
+      filtered = List.from(filtered);
+      filtered.sort((a, b) => b.releaseDateTs.compareTo(a.releaseDateTs));
+
+      // Paginación
       if (offset >= filtered.length) return [];
       
       final end = (offset + limit < filtered.length) ? offset + limit : filtered.length;
       return filtered.sublist(offset, end);
       
     } else {
-      // Implementación SQLite para Nativo
-      return _dbHelper.getGames(limit: limit, offset: offset, query: query);
+      return _dbHelper.getGames(
+        limit: limit, 
+        offset: offset, 
+        query: query,
+        voiceLanguage: voiceLanguage
+      );
     }
   }
 }

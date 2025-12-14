@@ -1,13 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:async'; // Movido arriba, donde debe estar
+import 'dart:async'; 
 import 'models/steam_game.dart';
 import 'services/data_service.dart';
 import 'screens/game_detail_page.dart';
-
-// Nota: Para soporte de escritorio (Windows/Linux) completo con SQLite,
-// se requeriría configuración condicional de FFI, pero para Web+Mobile
-// estándar, esta configuración es la más compatible.
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -53,6 +49,20 @@ class _HomePageState extends State<HomePage> {
   int _page = 0;
   final int _limit = 20;
   String _searchQuery = '';
+  
+  // Estado del Filtro
+  String _selectedVoiceLanguage = 'Cualquiera';
+  final List<String> _voiceLanguages = [
+    'Cualquiera',
+    'English',
+    'Spanish',
+    'Japanese',
+    'French',
+    'German',
+    'Italian',
+    'Russian',
+    'Portuguese'
+  ];
 
   @override
   void initState() {
@@ -73,14 +83,18 @@ class _HomePageState extends State<HomePage> {
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      setState(() {
-        _searchQuery = _searchController.text;
-        _page = 0;
-        _games.clear();
-        _hasMore = true;
-      });
-      _loadMoreGames();
+      _resetAndReload();
     });
+  }
+
+  void _resetAndReload() {
+    setState(() {
+      _searchQuery = _searchController.text;
+      _page = 0;
+      _games.clear();
+      _hasMore = true;
+    });
+    _loadMoreGames();
   }
 
   void _updateStatus(String msg) {
@@ -95,8 +109,6 @@ class _HomePageState extends State<HomePage> {
     
     try {
       _updateStatus('Comprobando datos...');
-      
-      // En Web, needsUpdate siempre será true o gestionado por el servicio
       bool needsUpdate = await _dataService.needsUpdate();
 
       if (needsUpdate) {
@@ -128,12 +140,7 @@ class _HomePageState extends State<HomePage> {
     try {
       _updateStatus('Sincronizando...');
       await _dataService.syncGames();
-      
-      setState(() {
-        _page = 0;
-        _hasMore = true;
-      });
-      await _loadMoreGames();
+      _resetAndReload();
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -177,11 +184,7 @@ class _HomePageState extends State<HomePage> {
       _updateStatus('Descargando datos frescos...');
       await _dataService.syncGames();
       
-      setState(() {
-        _page = 0;
-        _hasMore = true;
-      });
-      await _loadMoreGames();
+      _resetAndReload();
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -205,6 +208,7 @@ class _HomePageState extends State<HomePage> {
         limit: _limit,
         offset: _page * _limit,
         query: _searchQuery.isNotEmpty ? _searchQuery : null,
+        voiceLanguage: _selectedVoiceLanguage, // Pasamos el filtro
       );
 
       setState(() {
@@ -215,8 +219,8 @@ class _HomePageState extends State<HomePage> {
         }
       });
       
-      if (_games.isEmpty) {
-        _updateStatus('No se encontraron juegos.');
+      if (_games.isEmpty && _page == 1) {
+        _updateStatus('No se encontraron juegos con estos filtros.');
       }
 
     } catch (e) {
@@ -234,17 +238,53 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  void _showFilterDialog() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Filtrar por Voces', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                children: _voiceLanguages.map((lang) {
+                  return ChoiceChip(
+                    label: Text(lang),
+                    selected: _selectedVoiceLanguage == lang,
+                    onSelected: (selected) {
+                      setState(() {
+                        _selectedVoiceLanguage = lang;
+                      });
+                      Navigator.pop(context);
+                      _resetAndReload(); // Recargar al aplicar filtro
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        // Título modificado
         title: _isSyncing 
           ? const Text('Sincronizando...', style: TextStyle(fontSize: 16)) 
-          : const Text('VoxGamer Library'),
+          : const Text('VoxGamer'), 
         centerTitle: true,
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          // Menú de opciones
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'sync') _forceSync();
@@ -254,23 +294,11 @@ class _HomePageState extends State<HomePage> {
               return [
                 const PopupMenuItem(
                   value: 'sync',
-                  child: Row(
-                    children: [
-                      Icon(Icons.sync, color: Colors.blue),
-                      SizedBox(width: 8),
-                      Text('Sincronizar Rápido'),
-                    ],
-                  ),
+                  child: Row(children: [Icon(Icons.sync, color: Colors.blue), SizedBox(width: 8), Text('Sincronizar Rápido')]),
                 ),
                 const PopupMenuItem(
                   value: 'reset',
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_forever, color: Colors.red),
-                      SizedBox(width: 8),
-                      Text('Restablecer Todo'),
-                    ],
-                  ),
+                  child: Row(children: [Icon(Icons.delete_forever, color: Colors.red), SizedBox(width: 8), Text('Restablecer Todo')]),
                 ),
               ];
             },
@@ -279,34 +307,56 @@ class _HomePageState extends State<HomePage> {
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(60),
           child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Buscar juego...',
-                prefixIcon: const Icon(Icons.search),
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Buscar juego...',
+                      prefixIcon: const Icon(Icons.search),
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.all(0),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchController.clear();
+                                _resetAndReload();
+                              },
+                            )
+                          : null,
+                    ),
+                  ),
                 ),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() {
-                            _searchQuery = '';
-                            _page = 0;
-                            _games.clear();
-                            _hasMore = true;
-                          });
-                          _loadMoreGames();
-                        },
-                      )
-                    : null,
-              ),
+                const SizedBox(width: 8),
+                // Botón de Filtro
+                InkWell(
+                  onTap: _isSyncing ? null : _showFilterDialog,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _selectedVoiceLanguage == 'Cualquiera' 
+                          ? Colors.white 
+                          : Theme.of(context).primaryColor,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      Icons.filter_list, 
+                      color: _selectedVoiceLanguage == 'Cualquiera' 
+                          ? Colors.grey[700] 
+                          : Colors.white
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -340,10 +390,27 @@ class _HomePageState extends State<HomePage> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
-          child: Text(
-            _statusMessage.isNotEmpty ? _statusMessage : 'No hay datos.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 18, color: Colors.grey),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.search_off, size: 64, color: Colors.grey),
+              const SizedBox(height: 16),
+              Text(
+                _statusMessage.isNotEmpty && !_statusMessage.startsWith('Iniciando')
+                  ? _statusMessage 
+                  : 'No se encontraron juegos.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 18, color: Colors.grey),
+              ),
+              if (_selectedVoiceLanguage != 'Cualquiera')
+                Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(
+                    'Filtro activo: $_selectedVoiceLanguage',
+                    style: const TextStyle(color: Colors.deepPurple),
+                  ),
+                )
+            ],
           ),
         ),
       );
@@ -351,6 +418,17 @@ class _HomePageState extends State<HomePage> {
 
     return Column(
       children: [
+        if (_selectedVoiceLanguage != 'Cualquiera')
+          Container(
+            width: double.infinity,
+            color: Colors.deepPurple.shade50,
+            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+            child: Text(
+              'Mostrando juegos con voces en: $_selectedVoiceLanguage',
+              style: TextStyle(fontSize: 12, color: Colors.deepPurple.shade800),
+              textAlign: TextAlign.center,
+            ),
+          ),
         Expanded(
           child: ListView.builder(
             controller: _scrollController,

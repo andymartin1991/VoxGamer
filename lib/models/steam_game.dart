@@ -1,63 +1,61 @@
+// lib/models/steam_game.dart
+
 class SteamGame {
-  final int id;
-  final String title;
-  final String? releaseDate;
-  final String? size;
-  final String? steamUrl;
-  final String? headerImage;
-  final List<String> languages;
-  final List<String> voices;
-  
-  // Nuevos campos calculados
-  late final String cleanTitle; // Para búsqueda inteligente
-  late final int releaseDateTs; // Para ordenamiento
+  final String slug;
+  final String titulo;
+  final String descripcionCorta;
+  final String fechaLanzamiento;
+  final String? storage;
+  final List<String> generos;
+  final String imgPrincipal;
+  final List<String> galeria;
+  final Idiomas idiomas;
+  final int? metacritic;
+  final List<Tienda> tiendas;
+
+  // Campos calculados para búsqueda y ordenamiento
+  late final String cleanTitle;
+  late final int releaseDateTs;
 
   SteamGame({
-    required this.id,
-    required this.title,
-    this.releaseDate,
-    this.size,
-    this.steamUrl,
-    this.headerImage,
-    required this.languages,
-    required this.voices,
-    String? cleanTitle,
-    int? releaseDateTs,
+    required this.slug,
+    required this.titulo,
+    required this.descripcionCorta,
+    required this.fechaLanzamiento,
+    this.storage,
+    required this.generos,
+    required this.imgPrincipal,
+    required this.galeria,
+    required this.idiomas,
+    this.metacritic,
+    required this.tiendas,
   }) {
-    // Generamos el título limpio si no viene dado
-    this.cleanTitle = cleanTitle ?? _normalize(title);
-    // Parseamos la fecha si no viene dada
-    this.releaseDateTs = releaseDateTs ?? _parseDate(releaseDate);
+    cleanTitle = normalize(titulo); // Cambiado a método público
+    releaseDateTs = _parseDate(fechaLanzamiento);
   }
 
   factory SteamGame.fromJson(Map<String, dynamic> json) {
-    List<String> parseList(String key) {
-      if (json[key] != null) {
-        return List<String>.from(json[key])
-            .map((s) => s.toString().trim())
-            .where((s) => s.isNotEmpty)
-            .toList();
-      }
-      return [];
-    }
-
     return SteamGame(
-      id: json['id'] ?? 0,
-      title: json['titulo'] ?? 'Sin título',
-      releaseDate: json['fecha'],
-      size: json['size'],
-      steamUrl: json['url_steam'],
-      headerImage: json['img'],
-      languages: parseList('idiomas_texto'),
-      voices: parseList('idiomas_voces'),
+      slug: json['slug'] ?? '',
+      titulo: json['titulo'] ?? 'Sin título',
+      descripcionCorta: json['descripcion_corta'] ?? '',
+      fechaLanzamiento: json['fecha_lanzamiento'] ?? '',
+      storage: json['storage'],
+      generos: List<String>.from(json['generos'] ?? []),
+      imgPrincipal: json['img_principal'] ?? '',
+      galeria: List<String>.from(json['galeria'] ?? []),
+      idiomas: Idiomas.fromJson(json['idiomas'] ?? {}),
+      metacritic: json['metacritic'],
+      tiendas: (json['tiendas'] as List<dynamic>?)
+              ?.map((tiendaJson) => Tienda.fromJson(tiendaJson))
+              .toList() ??
+          [],
     );
   }
 
-  // Normalizador agresivo: quita acentos, símbolos y espacios
-  static String _normalize(String input) {
+  // Ahora es público para ser accesible desde otros archivos
+  static String normalize(String input) {
     var str = input.toLowerCase();
-    
-    // Reemplazos manuales de acentos comunes
     str = str.replaceAll(RegExp(r'[àáâãäå]'), 'a');
     str = str.replaceAll(RegExp(r'[èéêë]'), 'e');
     str = str.replaceAll(RegExp(r'[ìíîï]'), 'i');
@@ -65,63 +63,53 @@ class SteamGame {
     str = str.replaceAll(RegExp(r'[ùúûü]'), 'u');
     str = str.replaceAll(RegExp(r'[ñ]'), 'n');
     str = str.replaceAll(RegExp(r'[ç]'), 'c');
-    
-    // Elimina todo lo que NO sea letra o número
     return str.replaceAll(RegExp(r'[^a-z0-9]'), '');
   }
 
   static int _parseDate(String? dateStr) {
-    if (dateStr == null) return 0;
-    
-    // Formatos típicos de Steam: "9 Jun, 2021", "Oct 2020", "2023", "Coming soon"
+    if (dateStr == null || dateStr.isEmpty) return 0;
     try {
-      // Si dice "Coming soon" o "TBA", lo ponemos muy en el futuro
-      if (dateStr.toLowerCase().contains('coming') || 
-          dateStr.toLowerCase().contains('tba') || 
-          dateStr.toLowerCase().contains('to be')) {
-        return 9999999999999; 
-      }
-
-      // Intentamos parsear formato estándar "9 Jun, 2021"
-      // Como Dart no tiene un DateFormat flexible sin librerías externas (intl),
-      // hacemos un parseo manual básico o usamos un fallback.
-      
-      // Mapeo rápido de meses
-      final months = {
-        'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
-        'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
-      };
-
-      // Limpiamos la coma
-      String clean = dateStr.replaceAll(',', ''); 
-      List<String> parts = clean.split(' ');
-
-      // Caso "9 Jun 2021" (3 partes)
-      if (parts.length == 3) {
-        String d = parts[0].padLeft(2, '0');
-        String m = months[parts[1]] ?? '01';
-        String y = parts[2];
-        return DateTime.parse('$y-$m-$d').millisecondsSinceEpoch;
-      }
-      // Caso "Jun 2021" (2 partes)
-      else if (parts.length == 2) {
-         String m = months[parts[0]] ?? '01';
-         String y = parts[1];
-         // Si es numérico asumimos año
-         if (int.tryParse(parts[0]) != null) { 
-           // Caso raro, asumimos primer parte
-           return DateTime(int.parse(parts[0])).millisecondsSinceEpoch;
-         }
-         return DateTime.parse('$y-$m-01').millisecondsSinceEpoch;
-      }
-      // Caso "2021" (1 parte)
-      else if (parts.length == 1 && int.tryParse(parts[0]) != null) {
-        return DateTime(int.parse(parts[0])).millisecondsSinceEpoch;
-      }
-
+      return DateTime.parse(dateStr).millisecondsSinceEpoch;
     } catch (e) {
-      // Si falla, retornamos 0 (fecha antigua)
+      // Si el formato no es 'YYYY-MM-DD', retorna 0
+      return 0;
     }
-    return 0;
+  }
+}
+
+class Idiomas {
+  final List<String> voces;
+  final List<String> textos;
+
+  Idiomas({required this.voces, required this.textos});
+
+  factory Idiomas.fromJson(Map<String, dynamic> json) {
+    return Idiomas(
+      voces: List<String>.from(json['voces'] ?? []),
+      textos: List<String>.from(json['textos'] ?? []),
+    );
+  }
+}
+
+class Tienda {
+  final String tienda;
+  final String idExterno;
+  final String url;
+  final bool isFree;
+
+  Tienda({
+    required this.tienda,
+    required this.idExterno,
+    required this.url,
+    required this.isFree,
+  });
+
+  factory Tienda.fromJson(Map<String, dynamic> json) {
+    return Tienda(
+      tienda: json['tienda'] ?? '',
+      idExterno: json['id_externo'] ?? '',
+      url: json['url'] ?? '',
+      isFree: json['is_free'] ?? false,
+    );
   }
 }

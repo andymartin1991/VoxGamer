@@ -7,7 +7,7 @@ class GameDetailPage extends StatelessWidget {
 
   const GameDetailPage({super.key, required this.game});
 
-  Future<void> _launchSteamUrl(BuildContext context, String url) async {
+  Future<void> _launchUrlInBrowser(BuildContext context, String url) async {
     try {
       final Uri uri = Uri.parse(url);
       if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
@@ -20,12 +20,8 @@ class GameDetailPage extends StatelessWidget {
     } catch (e) {
       debugPrint('Error abriendo URL: $e');
       if (context.mounted) {
-        String msg = 'Error al abrir el navegador.';
-        if (e.toString().contains('channel-error') || e.toString().contains('Channel')) {
-          msg = 'Error de configuración. Por favor, desinstala y reinstala la app.';
-        }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg)),
+          const SnackBar(content: Text('Error al abrir el navegador.')),
         );
       }
     }
@@ -33,18 +29,21 @@ class GameDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Obtenemos la URL de la primera tienda, si existe.
+    final storeUrl = game.tiendas.isNotEmpty ? game.tiendas.first.url : null;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(game.title, overflow: TextOverflow.ellipsis),
+        title: Text(game.titulo, overflow: TextOverflow.ellipsis),
       ),
       body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Imagen de cabecera
-            if (game.headerImage != null)
+            if (game.imgPrincipal.isNotEmpty)
               Image.network(
-                game.headerImage!,
+                game.imgPrincipal,
                 width: double.infinity,
                 height: 220,
                 fit: BoxFit.cover,
@@ -68,52 +67,54 @@ class GameDetailPage extends StatelessWidget {
                 children: [
                   // Título
                   Text(
-                    game.title,
+                    game.titulo,
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
+                  ),
+                  const SizedBox(height: 8),
+                  // Descripción corta
+                  Text(
+                    game.descripcionCorta,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
                   ),
                   const SizedBox(height: 16),
 
                   // Información Grid
                   _buildInfoRow(context, Icons.calendar_today, 'Lanzamiento',
-                      game.releaseDate ?? 'N/A'),
+                      game.fechaLanzamiento.isNotEmpty ? game.fechaLanzamiento : 'N/A'),
                   const SizedBox(height: 12),
                   _buildInfoRow(context, Icons.sd_storage, 'Tamaño',
-                      game.size ?? 'N/A'),
+                      game.storage ?? 'N/A'),
+                   if (game.metacritic != null) ...[
+                    const SizedBox(height: 12),
+                    _buildInfoRow(context, Icons.star, 'Metacritic',
+                      game.metacritic.toString()),
+                   ],
                   const SizedBox(height: 24),
 
-                  // Sección Idiomas (Diseño Grid con Iconos)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Idiomas Disponibles',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                      ),
-                      // Debug visual para verificar datos
-                      if (game.voices.isNotEmpty)
-                        const Icon(Icons.check_circle, size: 16, color: Colors.green)
-                    ],
+                  // Sección Idiomas
+                  const Text(
+                    'Idiomas Disponibles',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const Divider(),
                   const SizedBox(height: 12),
-
                   _buildLanguageGrid(context),
-
                   const SizedBox(height: 24),
-                  
-                  // Enlace a Steam
-                   if (game.steamUrl != null) ...[
+
+                  // Enlace a la tienda
+                  if (storeUrl != null && storeUrl.isNotEmpty) ...[
                     const Divider(),
                     ListTile(
                       leading: const Icon(Icons.public, color: Colors.blue),
-                      title: const Text('Ver en Steam Store', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                      title: Text('Ver en ${game.tiendas.first.tienda}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
                       subtitle: Text(
-                        game.steamUrl!,
+                        storeUrl,
                         style: const TextStyle(color: Colors.grey),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      onTap: () => _launchSteamUrl(context, game.steamUrl!), 
+                      onTap: () => _launchUrlInBrowser(context, storeUrl),
                     ),
                   ],
                 ],
@@ -126,9 +127,9 @@ class GameDetailPage extends StatelessWidget {
   }
 
   Widget _buildLanguageGrid(BuildContext context) {
-    // Unimos y ordenamos todos los idiomas únicos
-    final allLanguages = {...game.languages, ...game.voices}.toList()..sort();
-    
+    // Unimos y ordenamos todos los idiomas únicos de textos y voces
+    final allLanguages = {...game.idiomas.textos, ...game.idiomas.voces}.toList()..sort();
+
     if (allLanguages.isEmpty) {
       return const Text(
         'No se especifica información de idiomas.',
@@ -140,10 +141,8 @@ class GameDetailPage extends StatelessWidget {
       spacing: 12.0,
       runSpacing: 12.0,
       children: allLanguages.map((lang) {
-        // Lógica de coincidencia robusta (ignora mayúsculas y espacios)
-        final hasText = game.languages.any((l) => l.trim().toLowerCase() == lang.trim().toLowerCase());
-        final hasAudio = game.voices.any((v) => v.trim().toLowerCase() == lang.trim().toLowerCase());
-        
+        final hasText = game.idiomas.textos.any((l) => l.trim().toLowerCase() == lang.trim().toLowerCase());
+        final hasAudio = game.idiomas.voces.any((v) => v.trim().toLowerCase() == lang.trim().toLowerCase());
         return _buildLanguageCard(context, lang, hasText, hasAudio);
       }).toList(),
     );
@@ -156,7 +155,6 @@ class GameDetailPage extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          // Borde verde si tiene audio (más premium), gris si solo texto
           color: hasAudio ? Colors.green.shade200 : Colors.grey.shade300,
           width: hasAudio ? 1.5 : 1.0,
         ),
@@ -171,39 +169,25 @@ class GameDetailPage extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Nombre del idioma
           Text(
-            language, 
-            style: TextStyle(
-              fontWeight: FontWeight.bold, 
-              fontSize: 14,
-              color: Colors.grey.shade800
-            )
+            language,
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey.shade800)
           ),
           const SizedBox(height: 6),
-          
-          // Fila de Iconos
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Icono Texto
-              if (hasText) ...[
+              if (hasText)
                 Tooltip(
                   message: 'Interfaz / Subtítulos',
                   child: Icon(Icons.article, size: 18, color: Colors.blueGrey.shade300)
                 ),
-              ],
-              
-              if (hasText && hasAudio)
-                const SizedBox(width: 8),
-
-              // Icono Audio
-              if (hasAudio) ...[
+              if (hasText && hasAudio) const SizedBox(width: 8),
+              if (hasAudio)
                  Tooltip(
                   message: 'Voces / Audio Completo',
                   child: Icon(Icons.mic, size: 18, color: Colors.green)
                  ),
-              ],
             ],
           )
         ],

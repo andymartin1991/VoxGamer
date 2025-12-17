@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:async'; 
+import 'dart:async';
 import 'models/steam_game.dart';
 import 'services/data_service.dart';
 import 'screens/game_detail_page.dart';
@@ -41,15 +41,15 @@ class _HomePageState extends State<HomePage> {
   Timer? _debounce;
 
   final List<SteamGame> _games = [];
-  bool _isLoading = false; 
-  bool _isSyncing = false; 
-  String _statusMessage = 'Iniciando...'; 
-  
+  bool _isLoading = false;
+  bool _isSyncing = false;
+  String _statusMessage = 'Iniciando...';
+
   bool _hasMore = true;
   int _page = 0;
   final int _limit = 20;
   String _searchQuery = '';
-  
+
   // Estado del Filtro
   String _selectedVoiceLanguage = 'Cualquiera';
   final List<String> _voiceLanguages = [
@@ -67,6 +67,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    debugPrint("HomePage initState");
     _checkAndLoadInitialData();
     _scrollController.addListener(_onScroll);
     _searchController.addListener(_onSearchChanged);
@@ -103,10 +104,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _checkAndLoadInitialData() async {
-    await Future.delayed(Duration.zero);
-    
+    // Pequeña pausa para asegurar que el UI se monte
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    if (!mounted) return;
+
     setState(() => _isSyncing = true);
-    
+
     try {
       _updateStatus('Comprobando datos...');
       bool needsUpdate = await _dataService.needsUpdate();
@@ -141,7 +145,7 @@ class _HomePageState extends State<HomePage> {
       _updateStatus('Sincronizando...');
       await _dataService.syncGames();
       _resetAndReload();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Sincronización completada')),
@@ -158,7 +162,7 @@ class _HomePageState extends State<HomePage> {
       if (mounted) setState(() => _isSyncing = false);
     }
   }
-  
+
   Future<void> _hardReset() async {
     bool? confirm = await showDialog(
       context: context,
@@ -171,21 +175,21 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
-    
+
     if (confirm != true) return;
 
     setState(() => _isSyncing = true);
     _games.clear();
-    
+
     try {
       _updateStatus('Limpiando...');
       await _dataService.clearDatabase();
-      
+
       _updateStatus('Descargando datos frescos...');
       await _dataService.syncGames();
-      
+
       _resetAndReload();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Catálogo restablecido')),
@@ -208,8 +212,10 @@ class _HomePageState extends State<HomePage> {
         limit: _limit,
         offset: _page * _limit,
         query: _searchQuery.isNotEmpty ? _searchQuery : null,
-        voiceLanguage: _selectedVoiceLanguage, // Pasamos el filtro
+        voiceLanguage: _selectedVoiceLanguage, 
       );
+
+      if (!mounted) return;
 
       setState(() {
         _page++;
@@ -217,16 +223,18 @@ class _HomePageState extends State<HomePage> {
         if (newGames.length < _limit) {
           _hasMore = false;
         }
+        _isLoading = false; // Mover aquí para evitar condiciones de carrera
       });
-      
+
       if (_games.isEmpty && _page == 1) {
         _updateStatus('No se encontraron juegos con estos filtros.');
+      } else {
+         debugPrint("Renderizando ${_games.length} juegos.");
       }
 
     } catch (e) {
       debugPrint("Error loading games: $e");
       _updateStatus('Error cargando lista: $e');
-    } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -261,7 +269,7 @@ class _HomePageState extends State<HomePage> {
                         _selectedVoiceLanguage = lang;
                       });
                       Navigator.pop(context);
-                      _resetAndReload(); // Recargar al aplicar filtro
+                      _resetAndReload(); 
                     },
                   );
                 }).toList(),
@@ -276,12 +284,13 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint("Building HomePage. Games count: ${_games.length}, Syncing: $_isSyncing, Loading: $_isLoading");
+    
     return Scaffold(
       appBar: AppBar(
-        // Título modificado
-        title: _isSyncing 
-          ? const Text('Sincronizando...', style: TextStyle(fontSize: 16)) 
-          : const Text('VoxGamer'), 
+        title: _isSyncing
+          ? const Text('Sincronizando...', style: TextStyle(fontSize: 16))
+          : const Text('VoxGamer'),
         centerTitle: true,
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
@@ -336,22 +345,21 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // Botón de Filtro
                 InkWell(
                   onTap: _isSyncing ? null : _showFilterDialog,
                   borderRadius: BorderRadius.circular(10),
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: _selectedVoiceLanguage == 'Cualquiera' 
-                          ? Colors.white 
+                      color: _selectedVoiceLanguage == 'Cualquiera'
+                          ? Colors.white
                           : Theme.of(context).primaryColor,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
-                      Icons.filter_list, 
-                      color: _selectedVoiceLanguage == 'Cualquiera' 
-                          ? Colors.grey[700] 
+                      Icons.filter_list,
+                      color: _selectedVoiceLanguage == 'Cualquiera'
+                          ? Colors.grey[700]
                           : Colors.white
                     ),
                   ),
@@ -397,7 +405,7 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(height: 16),
               Text(
                 _statusMessage.isNotEmpty && !_statusMessage.startsWith('Iniciando')
-                  ? _statusMessage 
+                  ? _statusMessage
                   : 'No se encontraron juegos.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 18, color: Colors.grey),
@@ -446,26 +454,28 @@ class _HomePageState extends State<HomePage> {
                 margin: const EdgeInsets.symmetric(
                     horizontal: 8, vertical: 4),
                 child: ListTile(
-                  leading: game.headerImage != null
+                  leading: game.imgPrincipal.isNotEmpty
                       ? Image.network(
-                          game.headerImage!,
+                          game.imgPrincipal,
                           width: 80,
                           height: 50,
                           fit: BoxFit.cover,
+                          // OPTIMIZACIÓN: Cachear a tamaño pequeño para no reventar la memoria
+                          cacheWidth: 160, 
                           errorBuilder:
                               (context, error, stackTrace) =>
                                   const Icon(Icons.broken_image),
                         )
                       : const Icon(Icons.videogame_asset),
                   title: Text(
-                    game.title,
+                    game.titulo,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                         fontWeight: FontWeight.bold),
                   ),
                   subtitle: Text(
-                      game.releaseDate ?? 'Fecha desconocida'),
+                      game.fechaLanzamiento.isNotEmpty ? game.fechaLanzamiento : 'Fecha desconocida'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () {
                     Navigator.push(

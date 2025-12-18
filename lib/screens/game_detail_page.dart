@@ -29,185 +29,219 @@ class GameDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Obtenemos la URL de la primera tienda, si existe.
     final storeUrl = game.tiendas.isNotEmpty ? game.tiendas.first.url : null;
+    final primaryColor = Theme.of(context).colorScheme.primary;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(game.titulo, overflow: TextOverflow.ellipsis),
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Imagen de cabecera
-            if (game.imgPrincipal.isNotEmpty)
-              Image.network(
-                game.imgPrincipal,
-                width: double.infinity,
-                height: 220,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  height: 220,
-                  color: Colors.grey[300],
-                  child: const Center(child: Icon(Icons.broken_image, size: 64)),
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 300.0,
+            pinned: true,
+            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+            flexibleSpace: FlexibleSpaceBar(
+              title: Text(
+                game.titulo,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  shadows: [Shadow(color: Colors.black, blurRadius: 10)],
                 ),
-              )
-            else
-              Container(
-                height: 220,
-                color: Colors.grey[300],
-                child: const Center(child: Icon(Icons.videogame_asset, size: 64)),
               ),
-
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              background: Stack(
+                fit: StackFit.expand,
                 children: [
-                  // Título
-                  Text(
-                    game.titulo,
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  // Descripción corta
-                  Text(
-                    game.descripcionCorta,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Información Grid
-                  _buildInfoRow(context, Icons.calendar_today, 'Lanzamiento',
-                      game.fechaLanzamiento.isNotEmpty ? game.fechaLanzamiento : 'N/A'),
-                  const SizedBox(height: 12),
-                  _buildInfoRow(context, Icons.sd_storage, 'Tamaño',
-                      game.storage ?? 'N/A'),
-                   if (game.metacritic != null) ...[
-                    const SizedBox(height: 12),
-                    _buildInfoRow(context, Icons.star, 'Metacritic',
-                      game.metacritic.toString()),
-                   ],
-                  const SizedBox(height: 24),
-
-                  // Sección Idiomas
-                  const Text(
-                    'Idiomas Disponibles',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const Divider(),
-                  const SizedBox(height: 12),
-                  _buildLanguageGrid(context),
-                  const SizedBox(height: 24),
-
-                  // Enlace a la tienda
-                  if (storeUrl != null && storeUrl.isNotEmpty) ...[
-                    const Divider(),
-                    ListTile(
-                      leading: const Icon(Icons.public, color: Colors.blue),
-                      title: Text('Ver en ${game.tiendas.first.tienda}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-                      subtitle: Text(
-                        storeUrl,
-                        style: const TextStyle(color: Colors.grey),
-                        overflow: TextOverflow.ellipsis,
+                  game.imgPrincipal.isNotEmpty
+                      ? Image.network(
+                          game.imgPrincipal,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(color: const Color(0xFF151921)),
+                        )
+                      : Container(color: const Color(0xFF151921)),
+                  // Gradiente para que el texto sea legible
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, Color(0xCC0A0E14)],
+                        stops: [0.6, 1.0]
                       ),
-                      onTap: () => _launchUrlInBrowser(context, storeUrl),
                     ),
-                  ],
+                  ),
                 ],
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLanguageGrid(BuildContext context) {
-    // Unimos y ordenamos todos los idiomas únicos de textos y voces
-    final allLanguages = {...game.idiomas.textos, ...game.idiomas.voces}.toList()..sort();
-
-    if (allLanguages.isEmpty) {
-      return const Text(
-        'No se especifica información de idiomas.',
-        style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey),
-      );
-    }
-
-    return Wrap(
-      spacing: 12.0,
-      runSpacing: 12.0,
-      children: allLanguages.map((lang) {
-        final hasText = game.idiomas.textos.any((l) => l.trim().toLowerCase() == lang.trim().toLowerCase());
-        final hasAudio = game.idiomas.voces.any((v) => v.trim().toLowerCase() == lang.trim().toLowerCase());
-        return _buildLanguageCard(context, lang, hasText, hasAudio);
-      }).toList(),
-    );
-  }
-
-  Widget _buildLanguageCard(BuildContext context, String language, bool hasText, bool hasAudio) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: hasAudio ? Colors.green.shade200 : Colors.grey.shade300,
-          width: hasAudio ? 1.5 : 1.0,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          )
-        ]
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            language,
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey.shade800)
           ),
-          const SizedBox(height: 6),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (hasText)
-                Tooltip(
-                  message: 'Interfaz / Subtítulos',
-                  child: Icon(Icons.article, size: 18, color: Colors.blueGrey.shade300)
-                ),
-              if (hasText && hasAudio) const SizedBox(width: 8),
-              if (hasAudio)
-                 Tooltip(
-                  message: 'Voces / Audio Completo',
-                  child: Icon(Icons.mic, size: 18, color: Colors.green)
-                 ),
-            ],
-          )
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Badges (Año y Metacritic)
+                  Row(
+                    children: [
+                      _buildBadge(Icons.calendar_today, game.fechaLanzamiento.isNotEmpty ? game.fechaLanzamiento.substring(0, 4) : 'N/A'),
+                      const SizedBox(width: 12),
+                      if (game.metacritic != null)
+                        _buildBadge(Icons.star, 'Metascore: ${game.metacritic}', color: primaryColor),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Descripción
+                  Text(
+                    'ACERCA DEL JUEGO',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey.shade500, letterSpacing: 1.2),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    game.descripcionCorta,
+                    style: const TextStyle(fontSize: 16, height: 1.5, color: Color(0xFFEDEDED)),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Info Grid
+                  _buildInfoSection(context),
+                  const SizedBox(height: 32),
+
+                  // Idiomas
+                  Text(
+                    'IDIOMAS',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey.shade500, letterSpacing: 1.2),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildLanguageGrid(context),
+                  const SizedBox(height: 40),
+
+                  // Botón Tienda (Full Width)
+                  if (storeUrl != null && storeUrl.isNotEmpty) 
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.shopping_cart),
+                        label: Text('Ver en ${game.tiendas.first.tienda}'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          elevation: 10,
+                          shadowColor: primaryColor.withOpacity(0.5),
+                        ),
+                        onPressed: () => _launchUrlInBrowser(context, storeUrl),
+                      ),
+                    ),
+                  const SizedBox(height: 40),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildInfoRow(BuildContext context, IconData icon, String label, String value) {
+  Widget _buildBadge(IconData icon, String text, {Color? color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E232F),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color?.withOpacity(0.3) ?? Colors.grey.shade800),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color ?? Colors.grey.shade400),
+          const SizedBox(width: 6),
+          Text(text, style: TextStyle(color: color ?? Colors.grey.shade300, fontWeight: FontWeight.bold, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoSection(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF151921),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade900),
+      ),
+      child: Column(
+        children: [
+          _buildInfoRow(Icons.sd_storage, 'Almacenamiento', game.storage ?? 'No especificado'),
+          const Divider(color: Color(0xFF1E232F), height: 24),
+          _buildInfoRow(Icons.category, 'Géneros', game.generos.join(', ')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String label, String value) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 20, color: Colors.grey[600]),
-        const SizedBox(width: 8),
-        Text(
-          '$label: ',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
+        Icon(icon, size: 20, color: Colors.grey.shade600),
+        const SizedBox(width: 12),
         Expanded(
-          child: Text(value),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+              const SizedBox(height: 2),
+              Text(value, style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w500)),
+            ],
+          ),
         ),
       ],
+    );
+  }
+
+  Widget _buildLanguageGrid(BuildContext context) {
+    final allLanguages = {...game.idiomas.textos, ...game.idiomas.voces}.toList()..sort();
+
+    if (allLanguages.isEmpty) {
+      return const Text('Información no disponible', style: TextStyle(color: Colors.grey));
+    }
+
+    return Wrap(
+      spacing: 8.0,
+      runSpacing: 8.0,
+      children: allLanguages.map((lang) {
+        final hasAudio = game.idiomas.voces.any((v) => v.trim().toLowerCase() == lang.trim().toLowerCase());
+        
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: hasAudio ? Theme.of(context).colorScheme.primary.withOpacity(0.15) : const Color(0xFF1E232F),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: hasAudio ? Theme.of(context).colorScheme.primary.withOpacity(0.5) : Colors.transparent
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                lang,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: hasAudio ? FontWeight.bold : FontWeight.normal,
+                  color: hasAudio ? Theme.of(context).colorScheme.primary : Colors.grey.shade300
+                ),
+              ),
+              if (hasAudio) ...[
+                const SizedBox(width: 4),
+                Icon(Icons.mic, size: 12, color: Theme.of(context).colorScheme.primary)
+              ]
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 }

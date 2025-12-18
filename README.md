@@ -1,64 +1,79 @@
-# VoxGamer - Multiplatform Steam Catalog
+# VoxGamer 🎮
 
-**VoxGamer** es el cliente oficial del ecosistema "Steam Data Scraper". Es una aplicación moderna desarrollada en **Flutter** que permite consultar, filtrar y explorar el catálogo de juegos de Steam generado por nuestra herramienta de backend.
-
-El proyecto es totalmente **Multiplataforma**, funcionando de manera nativa en **Android**, **iOS** y **Web**.
-
-## 📱 Descripción del Proyecto
-
-Esta aplicación actúa como el frontend para la base de datos de juegos. Mientras que la herramienta de backend (Java) descarga los metadatos y los optimiza en formatos JSON alojados en GitHub, **VoxGamer** consume estos datos para ofrecer una interfaz rápida, offline-first y potente.
-
-### Ecosistema
-1.  **Backend (Java):** [Steam Data Scraper](https://github.com/andymartin1991/SteamDataScraper) - Descarga datos de Steam y actualiza el JSON en GitHub.
-2.  **Frontend (Flutter):** **VoxGamer** (Este repositorio) - Visualiza los datos en móviles y web.
+VoxGamer es una aplicación Flutter moderna para explorar un catálogo masivo de juegos de Steam (más de 75,000 títulos). Permite filtrar por idiomas de voces y textos, géneros y año de lanzamiento de manera rápida y eficiente.
 
 ## ✨ Características Principales
 
-- **Búsqueda Inteligente:** Algoritmo de búsqueda normalizado que ignora tildes, símbolos y mayúsculas (ej: buscar "pokemon" encuentra "Pokémon").
-- **Filtros Avanzados:** Capacidad de filtrar juegos por idioma de voces (Dubbing).
-- **Orden Cronológico:** Los lanzamientos se ordenan automáticamente por fecha, mostrando primero lo más nuevo.
-- **Detalle Rico:** Fichas de juego con carátulas, fechas, tamaños y desglose detallado de idiomas (Texto vs Audio).
-- **Enlace a Tienda:** Apertura directa de la ficha de Steam en el navegador o app oficial.
-- **Offline-First (Móvil):** En Android/iOS, descarga la base de datos completa a SQLite local para consultas instantáneas sin internet.
-- **Web-Ready:** En navegadores, utiliza un sistema de caché en memoria RAM para una experiencia fluida sin necesidad de instalación.
+*   **Catálogo Masivo Offline:** Descarga y almacena localmente una base de datos de +75k juegos.
+*   **Filtros Dinámicos Inteligentes:**
+    *   Los filtros (Idiomas, Géneros, Años) se generan automáticamente basándose en los datos reales del catálogo.
+    *   Búsqueda instantánea dentro de los desplegables de filtro.
+*   **Optimización de Rendimiento:**
+    *   **Android:** Uso de SQLite con inserción por lotes (chunks) para manejar grandes volúmenes de datos sin bloquear la UI.
+    *   **Web:** Caché en memoria RAM con ordenamiento optimizado.
+    *   **Red:** Descarga de datos comprimidos (`.json.gz`) para reducir el consumo de datos y tiempo de carga.
+*   **Interfaz Moderna (Material 3):** Diseño limpio con soporte para imágenes cacheadas y modo oscuro/claro automático.
 
-## 🛠️ Stack Tecnológico
+## 🛠️ Tecnologías Utilizadas
 
-- **Framework:** Flutter (Dart)
-- **Base de Datos (Móvil):** SQLite (`sqflite`)
-- **Base de Datos (Web):** In-Memory Cache
-- **Red:** `http` (Consumo de JSON raw desde GitHub)
-- **Utilidades:** `url_launcher` (Navegación externa)
+*   **Flutter & Dart** (SDK >= 3.5.0)
+*   **SQLite (`sqflite`):** Persistencia de datos local en Android/iOS.
+*   **GZIP (`archive`):** Descompresión de datos en tiempo real.
+*   **HTTP (`http`):** Descarga de datos remotos.
+*   **Isolates (`compute`):** Procesamiento de datos pesados en segundo plano para no congelar la interfaz.
 
-## 🚀 Cómo Ejecutar
+## 🚀 Instalación y Ejecución
 
-### Prerrequisitos
-- Flutter SDK instalado.
-- Android Studio o VS Code.
+### Requisitos Previos
+*   Flutter SDK instalado.
+*   Android Studio o VS Code configurado.
+*   Dispositivo Android (físico o emulador) o navegador Chrome.
 
 ### Pasos
-
 1.  **Clonar el repositorio:**
     ```bash
-    git clone https://github.com/andymartin1991/VoxGamer.git
+    git clone https://github.com/tu-usuario/voxgamer.git
+    cd voxgamer
     ```
 
-2.  **Obtener dependencias:**
+2.  **Instalar dependencias:**
     ```bash
     flutter pub get
     ```
 
-3.  **Ejecutar:**
-    *   **Android:** Selecciona un emulador o dispositivo y pulsa Run.
-    *   **Web:** Selecciona Chrome/Edge y pulsa Run.
+3.  **Ejecutar la aplicación:**
+    *   **Android:**
+        ```bash
+        flutter run
+        ```
+    *   **Web:**
+        ```bash
+        flutter run -d chrome
+        ```
 
-## 🔄 Sincronización de Datos
+## 📱 Uso de la Aplicación
 
-La aplicación descarga automáticamente el catálogo la primera vez que se abre.
-Si el backend actualiza el JSON, puedes:
-1.  Usar la opción **"Sincronizar Rápido"** en el menú de la app.
-2.  Si hay cambios estructurales graves, usar **"Restablecer Todo"** para borrar la base de datos local y descargar una copia limpia.
+1.  **Primera Carga:** Al abrir la app por primera vez, descargará y procesará el catálogo comprimido. Esto puede tomar unos segundos dependiendo de tu conexión y dispositivo.
+2.  **Filtrado:** Toca el icono de filtro en la barra superior.
+    *   Selecciona **Idioma de Voces** o **Texto**.
+    *   Filtra por **Género** o **Año**.
+    *   Puedes escribir dentro de los desplegables para buscar opciones rápidamente.
+3.  **Búsqueda:** Usa la barra superior para buscar juegos por título.
+4.  **Reset:** Si necesitas recargar los datos, usa el menú de tres puntos -> "Restablecer Todo".
 
-## 🤝 Contribución
+## 📂 Estructura del Proyecto
 
-Si deseas mejorar el scraper de datos, visita el repositorio del backend. Para mejoras en la interfaz o nuevos filtros, ¡los Pull Requests son bienvenidos aquí!
+*   `lib/main.dart`: Punto de entrada y lógica de la interfaz principal.
+*   `lib/models/`: Modelos de datos (`SteamGame`).
+*   `lib/services/`:
+    *   `data_service.dart`: Gestión de descarga, descompresión y lógica de negocio.
+    *   `database_helper.dart`: Gestión de SQLite y consultas optimizadas.
+*   `lib/screens/`: Pantallas secundarias como el detalle del juego.
+
+## ⚠️ Solución de Problemas Comunes
+
+*   **Pantalla negra en Android:** Si la base de datos se corrompe por una interrupción, desinstala la app del emulador y vuelve a ejecutarla.
+*   **Error de Gradle:** Ejecuta `flutter clean` y luego `flutter pub get` si cambias de rama o dependencias.
+
+---
+Desarrollado con ❤️ usando Flutter.

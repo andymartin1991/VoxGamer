@@ -333,7 +333,6 @@ class _HomePageState extends State<HomePage> {
                     
                     const SizedBox(height: 32),
                 
-                    // Botones
                     Row(
                       children: [
                         Expanded(
@@ -379,6 +378,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  // WIDGET OPTIMIZADO: Texto vacío si es 'Cualquiera'
   Widget _buildSearchableDropdown({
     required String label, 
     required String value, 
@@ -386,23 +386,64 @@ class _HomePageState extends State<HomePage> {
     required IconData icon,
     required Function(String?) onSelected
   }) {
+    // 1. Protección lista vacía
+    if (items.isEmpty) {
+      return TextField(
+        enabled: false,
+        decoration: InputDecoration(
+          labelText: '$label (Sin datos)',
+          prefixIcon: Icon(icon),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+
+    // 2. Protección unicidad
+    final uniqueItems = items.toSet().toList();
+    final safeValue = uniqueItems.contains(value) ? value : 'Cualquiera';
+    final isCualquiera = safeValue == 'Cualquiera';
+
+    // 3. Controlador: Vacío si es 'Cualquiera' para que no haya que borrar
+    final TextEditingController controller = TextEditingController(
+      text: isCualquiera ? '' : safeValue
+    );
+
     return LayoutBuilder(builder: (context, constraints) {
       return DropdownMenu<String>(
-        width: constraints.maxWidth, 
-        initialSelection: items.contains(value) ? value : null,
-        enableFilter: true, 
-        requestFocusOnTap: true, 
+        width: constraints.maxWidth,
+        controller: controller,
+        // CLAVE: Si es cualquiera, initialSelection es null para no autorrellenar el texto
+        initialSelection: isCualquiera ? null : safeValue,
+        enableFilter: true,
+        requestFocusOnTap: true,
         label: Text(label),
+        hintText: 'Cualquiera', // MOVIDO AQUÍ CORRECTAMENTE
         leadingIcon: Icon(icon),
+        menuHeight: 250,
+        
         inputDecorationTheme: InputDecorationTheme(
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         ),
-        onSelected: onSelected,
-        dropdownMenuEntries: items.map<DropdownMenuEntry<String>>((String value) {
+
+        trailingIcon: !isCualquiera
+            ? IconButton(
+                icon: const Icon(Icons.clear, size: 20),
+                onPressed: () {
+                  controller.clear();
+                  onSelected('Cualquiera');
+                },
+              )
+            : null,
+            
+        onSelected: (String? newVal) {
+          onSelected(newVal ?? 'Cualquiera');
+        },
+        
+        dropdownMenuEntries: uniqueItems.map<DropdownMenuEntry<String>>((String itemValue) {
           return DropdownMenuEntry<String>(
-            value: value,
-            label: value,
+            value: itemValue,
+            label: itemValue,
           );
         }).toList(),
       );
@@ -504,7 +545,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // --- MÉTODO buildBody AÑADIDO ---
   Widget buildBody() {
     if (_isSyncing) {
       return Center(

@@ -15,7 +15,7 @@ class DatabaseHelper {
       throw UnsupportedError('SQLite no está soportado en Web.');
     }
     if (_database != null) return _database!;
-    _database = await _initDB('voxgamer_v2.db');
+    _database = await _initDB('voxgamer_v3.db'); 
     return _database!;
   }
 
@@ -48,7 +48,15 @@ class DatabaseHelper {
       releaseDateTs INTEGER
     )
     ''');
-    // Índices para mejorar la velocidad de búsqueda y ordenamiento
+    
+    await db.execute('''
+    CREATE TABLE meta_filters (
+      type TEXT NOT NULL,
+      value TEXT NOT NULL,
+      PRIMARY KEY (type, value)
+    )
+    ''');
+
     await db.execute('CREATE INDEX idx_cleanTitle ON games(cleanTitle)');
     await db.execute('CREATE INDEX idx_releaseDateTs ON games(releaseDateTs)');
   }
@@ -57,23 +65,83 @@ class DatabaseHelper {
     if (kIsWeb) return;
     final db = await database;
     await db.delete('games');
+    await db.delete('meta_filters');
     debugPrint('Base de datos limpiada.');
   }
 
-  // OPTIMIZADO: Inserción por lotes (Chunks)
+  // UPDATED: Aceptamos lista de años
+  Future<void> saveMetaFilters(List<String> genres, List<String> voices, List<String> texts, List<String> years) async {
+    if (kIsWeb) return;
+    final db = await database;
+    
+    await db.transaction((txn) async {
+      await txn.delete('meta_filters');
+      
+      final batch = txn.batch();
+      
+      for (var g in genres) {
+        batch.insert('meta_filters', {'type': 'genre', 'value': g});
+      }
+      for (var v in voices) {
+        batch.insert('meta_filters', {'type': 'voice', 'value': v});
+      }
+      for (var t in texts) {
+        batch.insert('meta_filters', {'type': 'text', 'value': t});
+      }
+      for (var y in years) {
+        batch.insert('meta_filters', {'type': 'year', 'value': y}); // Nuevo tipo
+      }
+      
+      await batch.commit(noResult: true);
+    });
+    debugPrint('Filtros dinámicos (incluyendo años) guardados en DB.');
+  }
+
+  Future<Map<String, List<String>>> getMetaFilters() async {
+    if (kIsWeb) return {};
+    final db = await database;
+    
+    final result = await db.query('meta_filters');
+    
+    final genres = <String>[];
+    final voices = <String>[];
+    final texts = <String>[];
+    final years = <String>[];
+    
+    for (var row in result) {
+      final val = row['value'] as String;
+      switch (row['type']) {
+        case 'genre': genres.add(val); break;
+        case 'voice': voices.add(val); break;
+        case 'text': texts.add(val); break;
+        case 'year': years.add(val); break;
+      }
+    }
+    
+    genres.sort();
+    voices.sort();
+    texts.sort();
+    // Los años los ordenamos descendente (más nuevo primero)
+    years.sort((a, b) => b.compareTo(a)); 
+    
+    return {
+      'genres': genres,
+      'voices': voices,
+      'texts': texts,
+      'years': years,
+    };
+  }
+
   Future<void> insertGames(List<SteamGame> games) async {
     if (kIsWeb) return;
 
     final db = await database;
-    const int batchSize = 500; // Tamaño del lote seguro
+    const int batchSize = 500;
     int total = games.length;
 
     debugPrint('Iniciando inserción de $total juegos en lotes de $batchSize...');
 
-    // Usamos una transacción global para velocidad, pero commits internos si fuera necesario
-    // Para 75k registros, una sola transacción está bien si los batches no son gigantes en memoria.
     await db.transaction((txn) async {
-      // Borramos todo primero
       await txn.delete('games');
 
       for (var i = 0; i < total; i += batchSize) {
@@ -108,11 +176,6 @@ class DatabaseHelper {
         }
         
         await batch.commit(noResult: true);
-        
-        // Progreso en consola cada 5000 registros
-        if (end % 5000 == 0 || end == total) {
-           debugPrint('Insertados $end / $total juegos...');
-        }
       }
     });
     debugPrint('Inserción masiva finalizada.');
@@ -123,6 +186,9 @@ class DatabaseHelper {
     int offset = 0,
     String? query,
     String? voiceLanguage,
+    String? textLanguage,
+    String? year,
+    String? genre,
   }) async {
     if (kIsWeb) return [];
 
@@ -136,13 +202,29 @@ class DatabaseHelper {
       whereArgs.add('%$cleanQuery%');
     }
 
-    if (voiceLanguage != null && voiceLanguage != 'Cualquiera') {
-       if (whereClause != null) {
-        whereClause += ' AND idiomas LIKE ?';
+    void addCondition(String clause, dynamic arg) {
+      if (whereClause != null) {
+        whereClause = '$whereClause AND $clause';
       } else {
-        whereClause = 'idiomas LIKE ?';
+        whereClause = clause;
       }
-      whereArgs.add('%"voces":%${jsonEncode(voiceLanguage)}%');
+      whereArgs.add(arg);
+    }
+
+    if (voiceLanguage != null && voiceLanguage != 'Cualquiera') {
+      addCondition('idiomas LIKE ?', '%"voces":%${jsonEncode(voiceLanguage)}%');
+    }
+
+    if (textLanguage != null && textLanguage != 'Cualquiera') {
+      addCondition('idiomas LIKE ?', '%"textos":%${jsonEncode(textLanguage)}%');
+    }
+
+    if (year != null && year != 'Cualquiera') {
+      addCondition('fecha_lanzamiento LIKE ?', '$year%');
+    }
+
+    if (genre != null && genre != 'Cualquiera') {
+      addCondition('generos LIKE ?', '%"$genre"%'); 
     }
 
     try {
@@ -155,18 +237,15 @@ class DatabaseHelper {
         orderBy: 'releaseDateTs DESC',
       );
       
-      debugPrint('SQL Query result: ${maps.length} rows found (offset: $offset, limit: $limit)');
-
       return maps.map((dbMap) {
           Map<String, dynamic> jsonMap = Map.of(dbMap);
-          // Decodificación segura
           try {
             jsonMap['generos'] = jsonDecode(dbMap['generos'] ?? '[]');
             jsonMap['galeria'] = jsonDecode(dbMap['galeria'] ?? '[]');
             jsonMap['idiomas'] = jsonDecode(dbMap['idiomas'] ?? '{}');
             jsonMap['tiendas'] = jsonDecode(dbMap['tiendas'] ?? '[]');
           } catch (e) {
-            debugPrint('Error decodificando JSON de DB para juego ${dbMap['slug']}: $e');
+            // Error silencioso
           }
           return SteamGame.fromJson(jsonMap);
       }).toList();
@@ -180,11 +259,8 @@ class DatabaseHelper {
     if (kIsWeb) return 0;
     try {
       final db = await database;
-      final count = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM games')) ?? 0;
-      debugPrint('Total juegos en DB: $count');
-      return count;
+      return Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM games')) ?? 0;
     } catch (e) {
-      debugPrint('Error contando juegos: $e');
       return 0;
     }
   }

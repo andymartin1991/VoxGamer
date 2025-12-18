@@ -50,24 +50,21 @@ class _HomePageState extends State<HomePage> {
   final int _limit = 20;
   String _searchQuery = '';
 
-  // Estado del Filtro
+  // --- ESTADOS DE FILTROS ---
   String _selectedVoiceLanguage = 'Cualquiera';
-  final List<String> _voiceLanguages = [
-    'Cualquiera',
-    'English',
-    'Spanish',
-    'Japanese',
-    'French',
-    'German',
-    'Italian',
-    'Russian',
-    'Portuguese'
-  ];
+  String _selectedTextLanguage = 'Cualquiera';
+  String _selectedYear = 'Cualquiera';
+  String _selectedGenre = 'Cualquiera';
+
+  // Listas de Opciones (DINÁMICAS)
+  List<String> _voiceLanguages = ['Cualquiera'];
+  List<String> _textLanguages = ['Cualquiera'];
+  List<String> _genres = ['Cualquiera'];
+  List<String> _years = ['Cualquiera'];
 
   @override
   void initState() {
     super.initState();
-    debugPrint("HomePage initState");
     _checkAndLoadInitialData();
     _scrollController.addListener(_onScroll);
     _searchController.addListener(_onSearchChanged);
@@ -103,10 +100,33 @@ class _HomePageState extends State<HomePage> {
     debugPrint(msg);
   }
 
-  Future<void> _checkAndLoadInitialData() async {
-    // Pequeña pausa para asegurar que el UI se monte
-    await Future.delayed(const Duration(milliseconds: 100));
+  Future<void> _loadFilterOptions() async {
+    try {
+      final options = await _dataService.getFilterOptions();
+      if (options.isNotEmpty && mounted) {
+        setState(() {
+          if (options.containsKey('voices')) {
+            _voiceLanguages = ['Cualquiera', ...options['voices']!];
+          }
+          if (options.containsKey('texts')) {
+            _textLanguages = ['Cualquiera', ...options['texts']!];
+          }
+          if (options.containsKey('genres')) {
+            _genres = ['Cualquiera', ...options['genres']!];
+          }
+          if (options.containsKey('years')) {
+            _years = ['Cualquiera', ...options['years']!];
+          }
+        });
+        debugPrint('Filtros dinámicos cargados: ${_voiceLanguages.length} voces, ${_textLanguages.length} textos, ${_genres.length} géneros, ${_years.length} años.');
+      }
+    } catch (e) {
+      debugPrint('Error cargando filtros dinámicos: $e');
+    }
+  }
 
+  Future<void> _checkAndLoadInitialData() async {
+    await Future.delayed(const Duration(milliseconds: 100));
     if (!mounted) return;
 
     setState(() => _isSyncing = true);
@@ -123,6 +143,7 @@ class _HomePageState extends State<HomePage> {
         _updateStatus('Cargando biblioteca...');
       }
 
+      await _loadFilterOptions();
       await _loadMoreGames();
 
     } catch (e, stackTrace) {
@@ -144,6 +165,7 @@ class _HomePageState extends State<HomePage> {
     try {
       _updateStatus('Sincronizando...');
       await _dataService.syncGames();
+      await _loadFilterOptions();
       _resetAndReload();
 
       if (mounted) {
@@ -168,7 +190,7 @@ class _HomePageState extends State<HomePage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('¿Restablecer Datos?'),
-        content: const Text('Esto recargará el catálogo desde cero.'),
+        content: const Text('Esto recargará el catálogo desde cero y actualizará los filtros.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
           TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Sí, Recargar', style: TextStyle(color: Colors.red))),
@@ -187,6 +209,8 @@ class _HomePageState extends State<HomePage> {
 
       _updateStatus('Descargando datos frescos...');
       await _dataService.syncGames();
+      
+      await _loadFilterOptions();
 
       _resetAndReload();
 
@@ -212,7 +236,10 @@ class _HomePageState extends State<HomePage> {
         limit: _limit,
         offset: _page * _limit,
         query: _searchQuery.isNotEmpty ? _searchQuery : null,
-        voiceLanguage: _selectedVoiceLanguage, 
+        voiceLanguage: _selectedVoiceLanguage,
+        textLanguage: _selectedTextLanguage,
+        year: _selectedYear,
+        genre: _selectedGenre,
       );
 
       if (!mounted) return;
@@ -223,13 +250,11 @@ class _HomePageState extends State<HomePage> {
         if (newGames.length < _limit) {
           _hasMore = false;
         }
-        _isLoading = false; // Mover aquí para evitar condiciones de carrera
+        _isLoading = false;
       });
 
       if (_games.isEmpty && _page == 1) {
         _updateStatus('No se encontraron juegos con estos filtros.');
-      } else {
-         debugPrint("Renderizando ${_games.length} juegos.");
       }
 
     } catch (e) {
@@ -247,45 +272,151 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _showFilterDialog() {
+    String tempVoice = _selectedVoiceLanguage;
+    String tempText = _selectedTextLanguage;
+    String tempYear = _selectedYear;
+    String tempGenre = _selectedGenre;
+
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true, 
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Filtrar por Voces', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                children: _voiceLanguages.map((lang) {
-                  return ChoiceChip(
-                    label: Text(lang),
-                    selected: _selectedVoiceLanguage == lang,
-                    onSelected: (selected) {
-                      setState(() {
-                        _selectedVoiceLanguage = lang;
-                      });
-                      Navigator.pop(context);
-                      _resetAndReload(); 
-                    },
-                  );
-                }).toList(),
+        return StatefulBuilder( 
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: SingleChildScrollView( 
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Filtros', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 24),
+                
+                    _buildSearchableDropdown(
+                      label: 'Idioma (Voces)',
+                      value: tempVoice,
+                      items: _voiceLanguages,
+                      icon: Icons.mic,
+                      onSelected: (val) => setModalState(() => tempVoice = val ?? 'Cualquiera'),
+                    ),
+                    const SizedBox(height: 16),
+                
+                    _buildSearchableDropdown(
+                      label: 'Idioma (Texto/Subt)',
+                      value: tempText,
+                      items: _textLanguages,
+                      icon: Icons.subtitles,
+                      onSelected: (val) => setModalState(() => tempText = val ?? 'Cualquiera'),
+                    ),
+                    const SizedBox(height: 16),
+                
+                    _buildSearchableDropdown(
+                      label: 'Género',
+                      value: tempGenre,
+                      items: _genres,
+                      icon: Icons.category,
+                      onSelected: (val) => setModalState(() => tempGenre = val ?? 'Cualquiera'),
+                    ),
+                    const SizedBox(height: 16),
+                
+                    _buildSearchableDropdown(
+                      label: 'Año de Lanzamiento',
+                      value: tempYear,
+                      items: _years,
+                      icon: Icons.calendar_today,
+                      onSelected: (val) => setModalState(() => tempYear = val ?? 'Cualquiera'),
+                    ),
+                    
+                    const SizedBox(height: 32),
+                
+                    // Botones
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              setModalState(() {
+                                tempVoice = 'Cualquiera';
+                                tempText = 'Cualquiera';
+                                tempYear = 'Cualquiera';
+                                tempGenre = 'Cualquiera';
+                              });
+                            },
+                            child: const Text('Limpiar'),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () {
+                              setState(() {
+                                _selectedVoiceLanguage = tempVoice;
+                                _selectedTextLanguage = tempText;
+                                _selectedYear = tempYear;
+                                _selectedGenre = tempGenre;
+                              });
+                              Navigator.pop(context);
+                              _resetAndReload();
+                            },
+                            child: const Text('Aplicar'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom)),
+                  ],
+                ),
               ),
-              const SizedBox(height: 10),
-            ],
-          ),
+            );
+          },
         );
       },
     );
   }
 
+  Widget _buildSearchableDropdown({
+    required String label, 
+    required String value, 
+    required List<String> items, 
+    required IconData icon,
+    required Function(String?) onSelected
+  }) {
+    return LayoutBuilder(builder: (context, constraints) {
+      return DropdownMenu<String>(
+        width: constraints.maxWidth, 
+        initialSelection: items.contains(value) ? value : null,
+        enableFilter: true, 
+        requestFocusOnTap: true, 
+        label: Text(label),
+        leadingIcon: Icon(icon),
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        ),
+        onSelected: onSelected,
+        dropdownMenuEntries: items.map<DropdownMenuEntry<String>>((String value) {
+          return DropdownMenuEntry<String>(
+            value: value,
+            label: value,
+          );
+        }).toList(),
+      );
+    });
+  }
+
+  bool get _hasActiveFilters => 
+    _selectedVoiceLanguage != 'Cualquiera' || 
+    _selectedTextLanguage != 'Cualquiera' ||
+    _selectedYear != 'Cualquiera' || 
+    _selectedGenre != 'Cualquiera';
+
   @override
   Widget build(BuildContext context) {
-    debugPrint("Building HomePage. Games count: ${_games.length}, Syncing: $_isSyncing, Loading: $_isLoading");
-    
     return Scaffold(
       appBar: AppBar(
         title: _isSyncing
@@ -351,15 +482,15 @@ class _HomePageState extends State<HomePage> {
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: _selectedVoiceLanguage == 'Cualquiera'
-                          ? Colors.white
+                      color: !_hasActiveFilters 
+                          ? Colors.white 
                           : Theme.of(context).primaryColor,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
                       Icons.filter_list,
-                      color: _selectedVoiceLanguage == 'Cualquiera'
-                          ? Colors.grey[700]
+                      color: !_hasActiveFilters 
+                          ? Colors.grey[700] 
                           : Colors.white
                     ),
                   ),
@@ -373,6 +504,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  // --- MÉTODO buildBody AÑADIDO ---
   Widget buildBody() {
     if (_isSyncing) {
       return Center(
@@ -410,12 +542,12 @@ class _HomePageState extends State<HomePage> {
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 18, color: Colors.grey),
               ),
-              if (_selectedVoiceLanguage != 'Cualquiera')
+              if (_hasActiveFilters)
                 Padding(
                   padding: const EdgeInsets.only(top: 8.0),
                   child: Text(
-                    'Filtro activo: $_selectedVoiceLanguage',
-                    style: const TextStyle(color: Colors.deepPurple),
+                    'Prueba a limpiar los filtros.',
+                    style: TextStyle(color: Theme.of(context).primaryColor),
                   ),
                 )
             ],
@@ -426,15 +558,26 @@ class _HomePageState extends State<HomePage> {
 
     return Column(
       children: [
-        if (_selectedVoiceLanguage != 'Cualquiera')
+        if (_hasActiveFilters)
           Container(
             width: double.infinity,
             color: Colors.deepPurple.shade50,
             padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
-            child: Text(
-              'Mostrando juegos con voces en: $_selectedVoiceLanguage',
-              style: TextStyle(fontSize: 12, color: Colors.deepPurple.shade800),
-              textAlign: TextAlign.center,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  const Text('Filtros: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  if (_selectedVoiceLanguage != 'Cualquiera')
+                    _buildFilterChip('Voces: $_selectedVoiceLanguage'),
+                  if (_selectedTextLanguage != 'Cualquiera')
+                    _buildFilterChip('Texto: $_selectedTextLanguage'),
+                  if (_selectedGenre != 'Cualquiera')
+                    _buildFilterChip('Género: $_selectedGenre'),
+                  if (_selectedYear != 'Cualquiera')
+                    _buildFilterChip('Año: $_selectedYear'),
+                ],
+              ),
             ),
           ),
         Expanded(
@@ -460,7 +603,6 @@ class _HomePageState extends State<HomePage> {
                           width: 80,
                           height: 50,
                           fit: BoxFit.cover,
-                          // OPTIMIZACIÓN: Cachear a tamaño pequeño para no reventar la memoria
                           cacheWidth: 160, 
                           errorBuilder:
                               (context, error, stackTrace) =>
@@ -492,6 +634,18 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ],
+    );
+  }
+  
+  Widget _buildFilterChip(String label) {
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.deepPurple.shade100,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(label, style: TextStyle(fontSize: 11, color: Colors.deepPurple.shade900)),
     );
   }
 }

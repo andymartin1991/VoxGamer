@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Permiso de Internet explícito (buena práctica para release) -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
-        android:label="voxgamer"
+        android:label="VoxGamer"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

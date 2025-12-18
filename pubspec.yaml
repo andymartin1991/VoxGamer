@@ -10,6 +10,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations: # Nueva dependencia
+    sdk: flutter
+  intl: ^0.19.0 # Nueva dependencia
+  
   cupertino_icons: ^1.0.8
   http: ^1.2.0
   sqflite: ^2.3.0
@@ -25,6 +29,18 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#0A0E14"
+  adaptive_icon_foreground: "assets/icon/app_icon.png"
 
 flutter:
   uses-material-design: true
+  generate: true # Importante para generar las traducciones
+  assets:
+    - assets/icon/

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart'; // Importación necesaria
 import '../models/steam_game.dart';
 
 class GameDetailPage extends StatelessWidget {
@@ -13,22 +14,18 @@ class GameDetailPage extends StatelessWidget {
       if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No se pudo abrir el enlace: $url')),
+            SnackBar(content: Text('Error: $url')),
           );
         }
       }
     } catch (e) {
-      debugPrint('Error abriendo URL: $e');
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error al abrir el navegador.')),
-        );
-      }
+      debugPrint('Error: $e');
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final storeUrl = game.tiendas.isNotEmpty ? game.tiendas.first.url : null;
     final primaryColor = Theme.of(context).colorScheme.primary;
 
@@ -58,7 +55,6 @@ class GameDetailPage extends StatelessWidget {
                               Container(color: const Color(0xFF151921)),
                         )
                       : Container(color: const Color(0xFF151921)),
-                  // Gradiente para que el texto sea legible
                   const DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -79,20 +75,18 @@ class GameDetailPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Badges (Año y Metacritic)
                   Row(
                     children: [
                       _buildBadge(Icons.calendar_today, game.fechaLanzamiento.isNotEmpty ? game.fechaLanzamiento.substring(0, 4) : 'N/A'),
                       const SizedBox(width: 12),
                       if (game.metacritic != null)
-                        _buildBadge(Icons.star, 'Metascore: ${game.metacritic}', color: primaryColor),
+                        _buildBadge(Icons.star, '${l10n.metascore}: ${game.metacritic}', color: primaryColor),
                     ],
                   ),
                   const SizedBox(height: 24),
 
-                  // Descripción
                   Text(
-                    'ACERCA DEL JUEGO',
+                    l10n.aboutGame,
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey.shade500, letterSpacing: 1.2),
                   ),
                   const SizedBox(height: 8),
@@ -102,27 +96,24 @@ class GameDetailPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 32),
 
-                  // Info Grid
-                  _buildInfoSection(context),
+                  _buildInfoSection(context, l10n),
                   const SizedBox(height: 32),
 
-                  // Idiomas
                   Text(
-                    'IDIOMAS',
+                    l10n.languages,
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey.shade500, letterSpacing: 1.2),
                   ),
                   const SizedBox(height: 12),
                   _buildLanguageGrid(context),
                   const SizedBox(height: 40),
 
-                  // Botón Tienda (Full Width)
                   if (storeUrl != null && storeUrl.isNotEmpty) 
                     SizedBox(
                       width: double.infinity,
                       height: 56,
                       child: ElevatedButton.icon(
                         icon: const Icon(Icons.shopping_cart),
-                        label: Text('Ver en ${game.tiendas.first.tienda}'),
+                        label: Text('${l10n.viewIn} ${game.tiendas.first.tienda}'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: primaryColor,
                           foregroundColor: Colors.white,
@@ -163,7 +154,7 @@ class GameDetailPage extends StatelessWidget {
     );
   }
 
-  Widget _buildInfoSection(BuildContext context) {
+  Widget _buildInfoSection(BuildContext context, AppLocalizations l10n) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -173,9 +164,9 @@ class GameDetailPage extends StatelessWidget {
       ),
       child: Column(
         children: [
-          _buildInfoRow(Icons.sd_storage, 'Almacenamiento', game.storage ?? 'No especificado'),
+          _buildInfoRow(Icons.sd_storage, l10n.storage, game.storage ?? 'N/A'),
           const Divider(color: Color(0xFF1E232F), height: 24),
-          _buildInfoRow(Icons.category, 'Géneros', game.generos.join(', ')),
+          _buildInfoRow(Icons.category, l10n.filterGenre, game.generos.join(', ')),
         ],
       ),
     );
@@ -205,7 +196,7 @@ class GameDetailPage extends StatelessWidget {
     final allLanguages = {...game.idiomas.textos, ...game.idiomas.voces}.toList()..sort();
 
     if (allLanguages.isEmpty) {
-      return const Text('Información no disponible', style: TextStyle(color: Colors.grey));
+      return const Text('N/A', style: TextStyle(color: Colors.grey));
     }
 
     return Wrap(

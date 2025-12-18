@@ -4,13 +4,14 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:async';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'models/steam_game.dart';
 import 'services/data_service.dart';
 import 'screens/game_detail_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  // Configurar estilo de barra de sistema para que coincida con el tema oscuro
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     systemNavigationBarColor: Color(0xFF0A0E14),
     statusBarColor: Colors.transparent,
@@ -24,38 +25,42 @@ class VoxGamerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Definición de Colores "Digital Arcade"
-    const bgDark = Color(0xFF0A0E14); // Casi negro, evita smearing
-    const cardBg = Color(0xFF151921); // Un poco más claro para superficie
-    const primaryNeon = Color(0xFF7C4DFF); // Violeta Neón Brillante
-    const secondaryNeon = Color(0xFF03DAC6); // Cian secundario
+    const bgDark = Color(0xFF0A0E14);
+    const cardBg = Color(0xFF151921);
+    const primaryNeon = Color(0xFF7C4DFF);
+    const secondaryNeon = Color(0xFF03DAC6);
     
     return MaterialApp(
       title: 'VoxGamer',
       debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.dark, // Forzamos modo oscuro
+      themeMode: ThemeMode.dark,
       
-      // TEMA OSCURO PERSONALIZADO
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('en'),
+        Locale('es'),
+      ],
+
       darkTheme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: bgDark,
         useMaterial3: true,
-        
         colorScheme: const ColorScheme.dark(
           primary: primaryNeon,
           secondary: secondaryNeon,
           surface: cardBg,
           background: bgDark,
-          onSurface: Color(0xFFEDEDED), // Texto blanco hueso
+          onSurface: Color(0xFFEDEDED),
         ),
-
-        // Tipografía "Outfit"
         textTheme: GoogleFonts.outfitTextTheme(ThemeData.dark().textTheme).apply(
           bodyColor: const Color(0xFFEDEDED),
           displayColor: Colors.white,
         ),
-
-        // Estilo de App Bar
         appBarTheme: const AppBarTheme(
           backgroundColor: bgDark,
           elevation: 0,
@@ -63,16 +68,12 @@ class VoxGamerApp extends StatelessWidget {
           titleTextStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
           iconTheme: IconThemeData(color: Colors.white),
         ),
-
-        // Estilo de Cards
         cardTheme: CardTheme(
           color: cardBg,
           elevation: 8,
-          shadowColor: primaryNeon.withOpacity(0.3), // Glow sutil por defecto
+          shadowColor: primaryNeon.withOpacity(0.3),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
-
-        // Estilo de Inputs (Buscador y Dropdowns)
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: const Color(0xFF1E232F),
@@ -106,20 +107,18 @@ class _HomePageState extends State<HomePage> {
   final List<SteamGame> _games = [];
   bool _isLoading = false;
   bool _isSyncing = false;
-  String _statusMessage = 'Iniciando sistema...';
+  String _statusMessage = '';
 
   bool _hasMore = true;
   int _page = 0;
   final int _limit = 20;
   String _searchQuery = '';
 
-  // --- ESTADOS DE FILTROS ---
   String _selectedVoiceLanguage = 'Cualquiera';
   String _selectedTextLanguage = 'Cualquiera';
   String _selectedYear = 'Cualquiera';
   String _selectedGenre = 'Cualquiera';
 
-  // Listas de Opciones (DINÁMICAS)
   List<String> _voiceLanguages = ['Cualquiera'];
   List<String> _textLanguages = ['Cualquiera'];
   List<String> _genres = ['Cualquiera'];
@@ -131,6 +130,17 @@ class _HomePageState extends State<HomePage> {
     _checkAndLoadInitialData();
     _scrollController.addListener(_onScroll);
     _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_statusMessage.isEmpty) {
+        final l10n = AppLocalizations.of(context);
+        if (l10n != null) {
+          _statusMessage = l10n.initializing;
+        }
+    }
   }
 
   @override
@@ -183,7 +193,7 @@ class _HomePageState extends State<HomePage> {
         });
       }
     } catch (e) {
-      debugPrint('Error cargando filtros dinámicos: $e');
+      debugPrint('Error cargando filtros: $e');
     }
   }
 
@@ -193,27 +203,29 @@ class _HomePageState extends State<HomePage> {
 
     setState(() => _isSyncing = true);
 
+    final l10n = AppLocalizations.of(context)!;
+
     try {
-      _updateStatus('Conectando al Nexo...');
+      _updateStatus(l10n.connecting);
       bool needsUpdate = await _dataService.needsUpdate();
 
       if (needsUpdate) {
-        _updateStatus('Sincronizando catálogo masivo...');
+        _updateStatus(l10n.syncing);
         await _dataService.syncGames();
-        _updateStatus('Catálogo listo.');
+        _updateStatus(l10n.ready);
       } else {
-        _updateStatus('Cargando biblioteca local...');
+        _updateStatus(l10n.loadingLib);
       }
 
       await _loadFilterOptions();
       await _loadMoreGames();
 
     } catch (e, stackTrace) {
-      _updateStatus('Error de inicialización: $e');
+      _updateStatus('${l10n.errorInit}: $e');
       debugPrint('Stacktrace: $stackTrace');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.redAccent),
+          SnackBar(content: Text('${l10n.errorInit}: $e'), backgroundColor: Colors.redAccent),
         );
       }
     } finally {
@@ -222,35 +234,37 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _forceSync() async {
+    final l10n = AppLocalizations.of(context)!;
     setState(() => _isSyncing = true);
     _games.clear();
     try {
-      _updateStatus('Forzando resincronización...');
+      _updateStatus(l10n.syncing);
       await _dataService.syncGames();
       await _loadFilterOptions();
       _resetAndReload();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Sincronización completada')),
+          SnackBar(content: Text(l10n.ready)),
         );
       }
     } catch (e) {
-      _updateStatus('Error al actualizar: $e');
+      _updateStatus('Error: $e');
     } finally {
       if (mounted) setState(() => _isSyncing = false);
     }
   }
 
   Future<void> _hardReset() async {
+    final l10n = AppLocalizations.of(context)!;
     bool? confirm = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('¿Reiniciar Sistema?'),
-        content: const Text('Esto purgará la base de datos local y descargará el catálogo completo nuevamente.'),
+        title: Text(l10n.resetTitle),
+        content: Text(l10n.resetContent),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Purgar y Recargar', style: TextStyle(color: Colors.redAccent))),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(l10n.cancel)),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text(l10n.purgeReload, style: const TextStyle(color: Colors.redAccent))),
         ],
       ),
     );
@@ -261,10 +275,10 @@ class _HomePageState extends State<HomePage> {
     _games.clear();
 
     try {
-      _updateStatus('Limpiando sectores de memoria...');
+      _updateStatus(l10n.initializing);
       await _dataService.clearDatabase();
 
-      _updateStatus('Descargando flujo de datos...');
+      _updateStatus(l10n.syncing);
       await _dataService.syncGames();
       
       await _loadFilterOptions();
@@ -273,11 +287,11 @@ class _HomePageState extends State<HomePage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Sistema restablecido')),
+          SnackBar(content: Text(l10n.ready)),
         );
       }
     } catch (e) {
-      _updateStatus('Error fatal: $e');
+      _updateStatus('Error: $e');
     } finally {
       if (mounted) setState(() => _isSyncing = false);
     }
@@ -311,7 +325,7 @@ class _HomePageState extends State<HomePage> {
       });
 
     } catch (e) {
-      _updateStatus('Error cargando lista: $e');
+      _updateStatus('Error: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -324,6 +338,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _showFilterDialog() {
+    final l10n = AppLocalizations.of(context)!;
     String tempVoice = _selectedVoiceLanguage;
     String tempText = _selectedTextLanguage;
     String tempYear = _selectedYear;
@@ -332,7 +347,7 @@ class _HomePageState extends State<HomePage> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true, 
-      backgroundColor: const Color(0xFF151921), // Fondo oscuro para el modal
+      backgroundColor: const Color(0xFF151921),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -349,14 +364,14 @@ class _HomePageState extends State<HomePage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Configurar Filtros', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+                        Text(l10n.filtersConfig, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
                         IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))
                       ],
                     ),
                     const SizedBox(height: 24),
                 
                     _buildSearchableDropdown(
-                      label: 'Idioma (Voces)',
+                      label: l10n.filterVoice,
                       value: tempVoice,
                       items: _voiceLanguages,
                       icon: Icons.mic,
@@ -365,7 +380,7 @@ class _HomePageState extends State<HomePage> {
                     const SizedBox(height: 16),
                 
                     _buildSearchableDropdown(
-                      label: 'Idioma (Texto/Subt)',
+                      label: l10n.filterText,
                       value: tempText,
                       items: _textLanguages,
                       icon: Icons.subtitles,
@@ -374,7 +389,7 @@ class _HomePageState extends State<HomePage> {
                     const SizedBox(height: 16),
                 
                     _buildSearchableDropdown(
-                      label: 'Género',
+                      label: l10n.filterGenre,
                       value: tempGenre,
                       items: _genres,
                       icon: Icons.category,
@@ -383,7 +398,7 @@ class _HomePageState extends State<HomePage> {
                     const SizedBox(height: 16),
                 
                     _buildSearchableDropdown(
-                      label: 'Año de Lanzamiento',
+                      label: l10n.filterYear,
                       value: tempYear,
                       items: _years,
                       icon: Icons.calendar_today,
@@ -408,7 +423,7 @@ class _HomePageState extends State<HomePage> {
                                 tempGenre = 'Cualquiera';
                               });
                             },
-                            child: const Text('Limpiar', style: TextStyle(color: Colors.white)),
+                            child: Text(l10n.btnClear, style: const TextStyle(color: Colors.white)),
                           ),
                         ),
                         const SizedBox(width: 16),
@@ -428,7 +443,7 @@ class _HomePageState extends State<HomePage> {
                               Navigator.pop(context);
                               _resetAndReload();
                             },
-                            child: const Text('Aplicar Filtros', style: TextStyle(fontWeight: FontWeight.bold)),
+                            child: Text(l10n.btnApply, style: const TextStyle(fontWeight: FontWeight.bold)),
                           ),
                         ),
                       ],
@@ -452,6 +467,8 @@ class _HomePageState extends State<HomePage> {
     required IconData icon,
     required Function(String?) onSelected
   }) {
+    final l10n = AppLocalizations.of(context)!;
+    
     if (items.isEmpty) {
       return TextField(
         enabled: false,
@@ -478,9 +495,9 @@ class _HomePageState extends State<HomePage> {
         enableFilter: true,
         requestFocusOnTap: true,
         label: Text(label),
-        hintText: 'Cualquiera',
+        hintText: l10n.any,
         leadingIcon: Icon(icon, color: Theme.of(context).colorScheme.primary),
-        menuHeight: 300,
+        menuHeight: 250,
         
         textStyle: const TextStyle(color: Colors.white),
         
@@ -506,9 +523,10 @@ class _HomePageState extends State<HomePage> {
         },
         
         dropdownMenuEntries: uniqueItems.map<DropdownMenuEntry<String>>((String itemValue) {
+          final label = itemValue == 'Cualquiera' ? l10n.any : itemValue;
           return DropdownMenuEntry<String>(
             value: itemValue,
-            label: itemValue,
+            label: label,
             style: ButtonStyle(
               foregroundColor: MaterialStateProperty.all(Colors.white),
               textStyle: MaterialStateProperty.all(const TextStyle(fontWeight: FontWeight.w500)),
@@ -519,24 +537,21 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  bool get _hasActiveFilters => 
-    _selectedVoiceLanguage != 'Cualquiera' || 
-    _selectedTextLanguage != 'Cualquiera' ||
-    _selectedYear != 'Cualquiera' || 
-    _selectedGenre != 'Cualquiera';
-
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    
     return Scaffold(
       appBar: AppBar(
         title: _isSyncing
           ? Text(_statusMessage, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.normal))
-          : const Row(
+          : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.gamepad, color: Color(0xFF7C4DFF)),
-                SizedBox(width: 8),
-                Text('VoxGamer'),
+                // REEMPLAZADO: Usamos app_logo.png
+                Image.asset('assets/icon/app_logo.png', width: 32, height: 32),
+                const SizedBox(width: 8),
+                const Text('VoxGamer'),
               ],
             ),
         actions: [
@@ -548,14 +563,15 @@ class _HomePageState extends State<HomePage> {
             },
             color: const Color(0xFF1E232F),
             itemBuilder: (BuildContext context) {
+              final localL10n = AppLocalizations.of(context)!;
               return [
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'sync',
-                  child: Row(children: [Icon(Icons.sync, color: Colors.blueAccent), SizedBox(width: 8), Text('Sincronizar Rápido', style: TextStyle(color: Colors.white))]),
+                  child: Row(children: [const Icon(Icons.sync, color: Colors.blueAccent), const SizedBox(width: 8), Text(localL10n.syncQuick, style: const TextStyle(color: Colors.white))]),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'reset',
-                  child: Row(children: [Icon(Icons.delete_forever, color: Colors.redAccent), SizedBox(width: 8), Text('Resetear Todo', style: TextStyle(color: Colors.white))]),
+                  child: Row(children: [const Icon(Icons.delete_forever, color: Colors.redAccent), const SizedBox(width: 8), Text(localL10n.resetAll, style: const TextStyle(color: Colors.white))]),
                 ),
               ];
             },
@@ -582,7 +598,7 @@ class _HomePageState extends State<HomePage> {
                       controller: _searchController,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
-                        hintText: 'Buscar juego...',
+                        hintText: l10n?.searchHint ?? '...',
                         hintStyle: TextStyle(color: Colors.grey.shade500),
                         prefixIcon: const Icon(Icons.search, color: Color(0xFF7C4DFF)),
                         fillColor: const Color(0xFF1E232F),
@@ -606,16 +622,16 @@ class _HomePageState extends State<HomePage> {
                   child: Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: _hasActiveFilters 
+                      color: _hasActiveFilters() 
                           ? Theme.of(context).colorScheme.primary 
                           : const Color(0xFF1E232F),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: _hasActiveFilters ? Colors.transparent : Colors.grey.shade800,
+                        color: _hasActiveFilters() ? Colors.transparent : Colors.grey.shade800,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: _hasActiveFilters 
+                          color: _hasActiveFilters() 
                             ? Theme.of(context).colorScheme.primary.withOpacity(0.4)
                             : Colors.transparent,
                           blurRadius: 10,
@@ -623,8 +639,8 @@ class _HomePageState extends State<HomePage> {
                         )
                       ]
                     ),
-                    child: Icon(
-                      Icons.tune, // Icono más moderno para filtros
+                    child: const Icon(
+                      Icons.tune,
                       color: Colors.white,
                     ),
                   ),
@@ -638,9 +654,16 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // --- COMPONENTES UI MEJORADOS ---
+  bool _hasActiveFilters() => 
+    _selectedVoiceLanguage != 'Cualquiera' || 
+    _selectedTextLanguage != 'Cualquiera' ||
+    _selectedYear != 'Cualquiera' || 
+    _selectedGenre != 'Cualquiera';
 
   Widget buildBody() {
+    final l10n = AppLocalizations.of(context);
+    if (l10n == null) return const SizedBox();
+
     if (_isSyncing) {
       return Center(
         child: Padding(
@@ -648,7 +671,7 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _buildShimmerLoading(rows: 3), // Efecto Shimmer
+              _buildShimmerLoading(rows: 3),
               const SizedBox(height: 24),
               Text(
                 _statusMessage,
@@ -671,14 +694,14 @@ class _HomePageState extends State<HomePage> {
               Icon(Icons.videogame_asset_off, size: 80, color: Colors.grey.shade800),
               const SizedBox(height: 24),
               Text(
-                'No se encontraron señales.',
+                l10n.noSignals,
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 20, color: Colors.grey.shade400, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
-              if (_hasActiveFilters)
+              if (_hasActiveFilters())
                 Text(
-                  'Intenta ajustar los filtros del nexo.',
+                  l10n.adjustFilters,
                   style: TextStyle(color: Theme.of(context).colorScheme.primary),
                 )
             ],
@@ -689,7 +712,7 @@ class _HomePageState extends State<HomePage> {
 
     return Column(
       children: [
-        if (_hasActiveFilters)
+        if (_hasActiveFilters())
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -697,15 +720,15 @@ class _HomePageState extends State<HomePage> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  const Text('Filtros Activos: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
+                  Text('${l10n.activeFilters} ', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
                   if (_selectedVoiceLanguage != 'Cualquiera')
-                    _buildFilterChip('Voces: $_selectedVoiceLanguage'),
+                    _buildFilterChip('${l10n.filterVoice}: $_selectedVoiceLanguage'),
                   if (_selectedTextLanguage != 'Cualquiera')
-                    _buildFilterChip('Texto: $_selectedTextLanguage'),
+                    _buildFilterChip('${l10n.filterText}: $_selectedTextLanguage'),
                   if (_selectedGenre != 'Cualquiera')
-                    _buildFilterChip('Género: $_selectedGenre'),
+                    _buildFilterChip('${l10n.filterGenre}: $_selectedGenre'),
                   if (_selectedYear != 'Cualquiera')
-                    _buildFilterChip('Año: $_selectedYear'),
+                    _buildFilterChip('${l10n.filterYear}: $_selectedYear'),
                 ],
               ),
             ),
@@ -717,7 +740,7 @@ class _HomePageState extends State<HomePage> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             itemBuilder: (context, index) {
               if (index == _games.length) {
-                return _buildShimmerLoading(rows: 1); // Shimmer al final
+                return _buildShimmerLoading(rows: 1);
               }
 
               final game = _games[index];
@@ -729,7 +752,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // Tarjeta de Juego Estilo "Digital Arcade"
   Widget _buildGameCard(SteamGame game) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -741,11 +763,9 @@ class _HomePageState extends State<HomePage> {
             blurRadius: 8,
             offset: const Offset(0, 4),
           ),
-          // Glow sutil si lo deseamos, pero puede ser costoso en rendimiento en listas largas
         ]
       ),
       child: Card(
-        // El tema ya define el color y shape, pero aseguramos
         margin: EdgeInsets.zero,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -757,7 +777,6 @@ class _HomePageState extends State<HomePage> {
           },
           child: Row(
             children: [
-              // Imagen Izquierda (Grande)
               SizedBox(
                 width: 120,
                 height: 90,
@@ -765,14 +784,13 @@ class _HomePageState extends State<HomePage> {
                     ? Image.network(
                         game.imgPrincipal,
                         fit: BoxFit.cover,
-                        cacheWidth: 240, // Optimización memoria
+                        cacheWidth: 240,
                         errorBuilder: (context, error, stackTrace) =>
                             Container(color: const Color(0xFF1E232F), child: const Icon(Icons.broken_image, color: Colors.grey)),
                       )
                     : Container(color: const Color(0xFF1E232F), child: const Icon(Icons.videogame_asset, color: Colors.grey)),
               ),
               
-              // Información Derecha
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(12.0),
@@ -830,7 +848,6 @@ class _HomePageState extends State<HomePage> {
       margin: const EdgeInsets.only(right: 8),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        // Gradiente Neon
         gradient: LinearGradient(
           colors: [
             Theme.of(context).colorScheme.primary.withOpacity(0.8),
@@ -849,7 +866,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // Efecto de carga moderno (Skeleton)
   Widget _buildShimmerLoading({required int rows}) {
     return Shimmer.fromColors(
       baseColor: const Color(0xFF1E232F),

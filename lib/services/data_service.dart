@@ -10,13 +10,14 @@ class SyncResult {
   final List<String> genres;
   final List<String> voices;
   final List<String> texts;
-  final List<String> years; // Nuevo campo
+  final List<String> years;
 
   SyncResult(this.games, this.genres, this.voices, this.texts, this.years);
 }
 
 class DataService {
-  static const String _dataUrl = 'https://raw.githubusercontent.com/andymartin1991/SteamDataScraper/main/steam_games.json.gz';
+  // URL actualizada a global_games.json.gz
+  static const String _dataUrl = 'https://raw.githubusercontent.com/andymartin1991/SteamDataScraper/main/global_games.json.gz';
 
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
   
@@ -75,7 +76,6 @@ class DataService {
         } else {
           debugPrint('Insertando ${result.games.length} juegos en SQLite (Nativo)...');
           await _dbHelper.insertGames(result.games);
-          // Guardamos también los años extraídos
           await _dbHelper.saveMetaFilters(result.genres, result.voices, result.texts, result.years);
         }
 
@@ -108,7 +108,7 @@ class DataService {
       final Set<String> genresSet = {};
       final Set<String> voicesSet = {};
       final Set<String> textsSet = {};
-      final Set<String> yearsSet = {}; // Set para años únicos
+      final Set<String> yearsSet = {};
 
       for (var game in games) {
         for (var g in game.generos) {
@@ -121,10 +121,8 @@ class DataService {
           if (t.isNotEmpty) textsSet.add(t.trim());
         }
         
-        // Extracción de Año: "2013-10-22" -> "2013"
         if (game.fechaLanzamiento.length >= 4) {
           final yearCandidate = game.fechaLanzamiento.substring(0, 4);
-          // Verificamos que sea numérico para no guardar basura
           if (int.tryParse(yearCandidate) != null) {
             yearsSet.add(yearCandidate);
           }
@@ -134,7 +132,6 @@ class DataService {
       final genresList = genresSet.toList()..sort();
       final voicesList = voicesSet.toList()..sort();
       final textsList = textsSet.toList()..sort();
-      // Ordenamos años descendente (más recientes primero)
       final yearsList = yearsSet.toList()..sort((a, b) => b.compareTo(a));
 
       return SyncResult(games, genresList, voicesList, textsList, yearsList);

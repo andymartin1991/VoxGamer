@@ -548,7 +548,6 @@ class _HomePageState extends State<HomePage> {
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // REEMPLAZADO: Usamos app_logo.png
                 Image.asset('assets/icon/app_logo.png', width: 32, height: 32),
                 const SizedBox(width: 8),
                 const Text('VoxGamer'),
@@ -779,7 +778,7 @@ class _HomePageState extends State<HomePage> {
             children: [
               SizedBox(
                 width: 120,
-                height: 90,
+                height: 100, // Aumentado ligeramente para caber más info
                 child: game.imgPrincipal.isNotEmpty
                     ? Image.network(
                         game.imgPrincipal,
@@ -826,6 +825,22 @@ class _HomePageState extends State<HomePage> {
                               style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold),
                             ),
                           ]
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      // New Platform Row
+                      Row(
+                        children: [
+                          Icon(Icons.gamepad, size: 12, color: Colors.grey.shade500),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              game.plataformas.isNotEmpty ? game.plataformas.join(', ') : 'N/A',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                            ),
+                          ),
                         ],
                       ),
                     ],

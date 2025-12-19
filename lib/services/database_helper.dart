@@ -15,7 +15,7 @@ class DatabaseHelper {
       throw UnsupportedError('SQLite no está soportado en Web.');
     }
     if (_database != null) return _database!;
-    _database = await _initDB('voxgamer_v3.db'); 
+    _database = await _initDB('voxgamer_v4.db'); // Incrementada version a v4 para forzar recreación limpia
     return _database!;
   }
 
@@ -25,8 +25,9 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2, // Incrementamos versión interna
       onCreate: _createDB,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -39,6 +40,7 @@ class DatabaseHelper {
       fecha_lanzamiento TEXT,
       storage TEXT,
       generos TEXT,
+      plataformas TEXT, -- Nuevo campo
       img_principal TEXT,
       galeria TEXT,
       idiomas TEXT,
@@ -61,6 +63,15 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX idx_releaseDateTs ON games(releaseDateTs)');
   }
 
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Si la versión es vieja, borramos todo para forzar resync limpio con la nueva estructura
+      await db.execute('DROP TABLE IF EXISTS games');
+      await db.execute('DROP TABLE IF EXISTS meta_filters');
+      await _createDB(db, newVersion);
+    }
+  }
+
   Future<void> clearAllData() async {
     if (kIsWeb) return;
     final db = await database;
@@ -69,7 +80,6 @@ class DatabaseHelper {
     debugPrint('Base de datos limpiada.');
   }
 
-  // UPDATED: Aceptamos lista de años
   Future<void> saveMetaFilters(List<String> genres, List<String> voices, List<String> texts, List<String> years) async {
     if (kIsWeb) return;
     final db = await database;
@@ -89,7 +99,7 @@ class DatabaseHelper {
         batch.insert('meta_filters', {'type': 'text', 'value': t});
       }
       for (var y in years) {
-        batch.insert('meta_filters', {'type': 'year', 'value': y}); // Nuevo tipo
+        batch.insert('meta_filters', {'type': 'year', 'value': y});
       }
       
       await batch.commit(noResult: true);
@@ -121,7 +131,6 @@ class DatabaseHelper {
     genres.sort();
     voices.sort();
     texts.sort();
-    // Los años los ordenamos descendente (más nuevo primero)
     years.sort((a, b) => b.compareTo(a)); 
     
     return {
@@ -157,6 +166,7 @@ class DatabaseHelper {
             'fecha_lanzamiento': game.fechaLanzamiento,
             'storage': game.storage,
             'generos': jsonEncode(game.generos),
+            'plataformas': jsonEncode(game.plataformas), // Insertamos plataformas
             'img_principal': game.imgPrincipal,
             'galeria': jsonEncode(game.galeria),
             'idiomas': jsonEncode({
@@ -241,6 +251,7 @@ class DatabaseHelper {
           Map<String, dynamic> jsonMap = Map.of(dbMap);
           try {
             jsonMap['generos'] = jsonDecode(dbMap['generos'] ?? '[]');
+            jsonMap['plataformas'] = jsonDecode(dbMap['plataformas'] ?? '[]'); // Parseamos plataformas
             jsonMap['galeria'] = jsonDecode(dbMap['galeria'] ?? '[]');
             jsonMap['idiomas'] = jsonDecode(dbMap['idiomas'] ?? '{}');
             jsonMap['tiendas'] = jsonDecode(dbMap['tiendas'] ?? '[]');

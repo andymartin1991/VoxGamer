@@ -7,6 +7,7 @@ class SteamGame {
   final String fechaLanzamiento;
   final String? storage;
   final List<String> generos;
+  final List<String> plataformas; // Nuevo campo
   final String imgPrincipal;
   final List<String> galeria;
   final Idiomas idiomas;
@@ -24,13 +25,14 @@ class SteamGame {
     required this.fechaLanzamiento,
     this.storage,
     required this.generos,
+    required this.plataformas,
     required this.imgPrincipal,
     required this.galeria,
     required this.idiomas,
     this.metacritic,
     required this.tiendas,
   }) {
-    cleanTitle = normalize(titulo); // Cambiado a método público
+    cleanTitle = normalize(titulo);
     releaseDateTs = _parseDate(fechaLanzamiento);
   }
 
@@ -42,6 +44,7 @@ class SteamGame {
       fechaLanzamiento: json['fecha_lanzamiento'] ?? '',
       storage: json['storage'],
       generos: List<String>.from(json['generos'] ?? []),
+      plataformas: List<String>.from(json['plataformas'] ?? []), // Parseo
       imgPrincipal: json['img_principal'] ?? '',
       galeria: List<String>.from(json['galeria'] ?? []),
       idiomas: Idiomas.fromJson(json['idiomas'] ?? {}),
@@ -53,7 +56,6 @@ class SteamGame {
     );
   }
 
-  // Ahora es público para ser accesible desde otros archivos
   static String normalize(String input) {
     var str = input.toLowerCase();
     str = str.replaceAll(RegExp(r'[àáâãäå]'), 'a');
@@ -71,7 +73,6 @@ class SteamGame {
     try {
       return DateTime.parse(dateStr).millisecondsSinceEpoch;
     } catch (e) {
-      // Si el formato no es 'YYYY-MM-DD', retorna 0
       return 0;
     }
   }

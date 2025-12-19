@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter_gen/gen_l10n/app_localizations.dart'; // Importación necesaria
+import 'package:flutter_gen/gen_l10n/app_localizations.dart'; 
 import '../models/steam_game.dart';
 
 class GameDetailPage extends StatelessWidget {
@@ -26,7 +26,6 @@ class GameDetailPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final storeUrl = game.tiendas.isNotEmpty ? game.tiendas.first.url : null;
     final primaryColor = Theme.of(context).colorScheme.primary;
 
     return Scaffold(
@@ -107,24 +106,34 @@ class GameDetailPage extends StatelessWidget {
                   _buildLanguageGrid(context),
                   const SizedBox(height: 40),
 
-                  if (storeUrl != null && storeUrl.isNotEmpty) 
-                    SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.shopping_cart),
-                        label: Text('${l10n.viewIn} ${game.tiendas.first.tienda}'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: primaryColor,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                          elevation: 10,
-                          shadowColor: primaryColor.withOpacity(0.5),
-                        ),
-                        onPressed: () => _launchUrlInBrowser(context, storeUrl),
-                      ),
+                  if (game.tiendas.isNotEmpty) ...[
+                     Text(
+                      'TIENDAS DISPONIBLES',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey.shade500, letterSpacing: 1.2),
                     ),
+                    const SizedBox(height: 16),
+                    ...game.tiendas.map((tienda) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12.0),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.shopping_cart),
+                          label: Text('${l10n.viewIn} ${tienda.tienda}'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1E232F),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(color: primaryColor.withOpacity(0.5))
+                            ),
+                            elevation: 0,
+                          ),
+                          onPressed: () => _launchUrlInBrowser(context, tienda.url),
+                        ),
+                      ),
+                    )).toList(),
+                  ],
                   const SizedBox(height: 40),
                 ],
               ),
@@ -167,6 +176,8 @@ class GameDetailPage extends StatelessWidget {
           _buildInfoRow(Icons.sd_storage, l10n.storage, game.storage ?? 'N/A'),
           const Divider(color: Color(0xFF1E232F), height: 24),
           _buildInfoRow(Icons.category, l10n.filterGenre, game.generos.join(', ')),
+          const Divider(color: Color(0xFF1E232F), height: 24),
+          _buildInfoRow(Icons.gamepad, 'Plataformas', game.plataformas.isNotEmpty ? game.plataformas.join(', ') : 'N/A'),
         ],
       ),
     );

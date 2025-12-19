@@ -118,11 +118,13 @@ class _HomePageState extends State<HomePage> {
   String _selectedTextLanguage = 'Cualquiera';
   String _selectedYear = 'Cualquiera';
   String _selectedGenre = 'Cualquiera';
+  String _selectedPlatform = 'Cualquiera'; 
 
   List<String> _voiceLanguages = ['Cualquiera'];
   List<String> _textLanguages = ['Cualquiera'];
   List<String> _genres = ['Cualquiera'];
   List<String> _years = ['Cualquiera'];
+  List<String> _platforms = ['Cualquiera']; 
 
   @override
   void initState() {
@@ -189,6 +191,9 @@ class _HomePageState extends State<HomePage> {
           }
           if (options.containsKey('years')) {
             _years = ['Cualquiera', ...options['years']!];
+          }
+          if (options.containsKey('platforms')) {
+            _platforms = ['Cualquiera', ...options['platforms']!];
           }
         });
       }
@@ -311,6 +316,7 @@ class _HomePageState extends State<HomePage> {
         textLanguage: _selectedTextLanguage,
         year: _selectedYear,
         genre: _selectedGenre,
+        platform: _selectedPlatform,
       );
 
       if (!mounted) return;
@@ -343,6 +349,7 @@ class _HomePageState extends State<HomePage> {
     String tempText = _selectedTextLanguage;
     String tempYear = _selectedYear;
     String tempGenre = _selectedGenre;
+    String tempPlatform = _selectedPlatform;
 
     showModalBottomSheet(
       context: context,
@@ -396,6 +403,15 @@ class _HomePageState extends State<HomePage> {
                       onSelected: (val) => setModalState(() => tempGenre = val ?? 'Cualquiera'),
                     ),
                     const SizedBox(height: 16),
+                    
+                    _buildSearchableDropdown(
+                      label: l10n.filterPlatform,
+                      value: tempPlatform,
+                      items: _platforms,
+                      icon: Icons.gamepad,
+                      onSelected: (val) => setModalState(() => tempPlatform = val ?? 'Cualquiera'),
+                    ),
+                    const SizedBox(height: 16),
                 
                     _buildSearchableDropdown(
                       label: l10n.filterYear,
@@ -421,6 +437,7 @@ class _HomePageState extends State<HomePage> {
                                 tempText = 'Cualquiera';
                                 tempYear = 'Cualquiera';
                                 tempGenre = 'Cualquiera';
+                                tempPlatform = 'Cualquiera';
                               });
                             },
                             child: Text(l10n.btnClear, style: const TextStyle(color: Colors.white)),
@@ -439,6 +456,7 @@ class _HomePageState extends State<HomePage> {
                                 _selectedTextLanguage = tempText;
                                 _selectedYear = tempYear;
                                 _selectedGenre = tempGenre;
+                                _selectedPlatform = tempPlatform;
                               });
                               Navigator.pop(context);
                               _resetAndReload();
@@ -468,73 +486,85 @@ class _HomePageState extends State<HomePage> {
     required Function(String?) onSelected
   }) {
     final l10n = AppLocalizations.of(context)!;
-    
-    if (items.isEmpty) {
-      return TextField(
-        enabled: false,
-        decoration: InputDecoration(
-          labelText: '$label (Sin datos)',
-          prefixIcon: Icon(icon),
-        ),
-      );
-    }
-
     final uniqueItems = items.toSet().toList();
     final safeValue = uniqueItems.contains(value) ? value : 'Cualquiera';
     final isCualquiera = safeValue == 'Cualquiera';
 
-    final TextEditingController controller = TextEditingController(
-      text: isCualquiera ? '' : safeValue
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Autocomplete<String>(
+          key: ValueKey(safeValue),
+          initialValue: TextEditingValue(text: isCualquiera ? '' : safeValue),
+          optionsBuilder: (TextEditingValue textEditingValue) {
+            if (textEditingValue.text.isEmpty) {
+              return uniqueItems;
+            }
+            return uniqueItems.where((String option) {
+              return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+            });
+          },
+          onSelected: (String selection) {
+            onSelected(selection);
+          },
+          fieldViewBuilder: (BuildContext context, TextEditingController fieldTextEditingController, FocusNode fieldFocusNode, VoidCallback onFieldSubmitted) {
+            return TextField(
+              controller: fieldTextEditingController,
+              focusNode: fieldFocusNode,
+              decoration: InputDecoration(
+                labelText: label,
+                hintText: l10n.any,
+                prefixIcon: Icon(icon, color: Theme.of(context).colorScheme.primary),
+                filled: true,
+                fillColor: const Color(0xFF1E232F),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                suffixIcon: fieldTextEditingController.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 20, color: Colors.grey),
+                      onPressed: () {
+                        fieldTextEditingController.clear();
+                        onSelected('Cualquiera');
+                        // Forzar refresco de opciones para mostrar todas
+                        fieldTextEditingController.notifyListeners();
+                      },
+                    )
+                  : null,
+              ),
+              style: const TextStyle(color: Colors.white),
+            );
+          },
+          optionsViewBuilder: (BuildContext context, AutocompleteOnSelected<String> onSelected, Iterable<String> options) {
+            return Align(
+              alignment: Alignment.topLeft,
+              child: Material(
+                elevation: 4.0,
+                color: const Color(0xFF1E232F),
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.vertical(bottom: Radius.circular(12))
+                ),
+                child: Container(
+                  width: constraints.maxWidth,
+                  constraints: const BoxConstraints(maxHeight: 250),
+                  child: ListView.builder(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: options.length,
+                    itemBuilder: (BuildContext context, int index) {
+                      final String option = options.elementAt(index);
+                      return ListTile(
+                        title: Text(option == 'Cualquiera' ? l10n.any : option, style: const TextStyle(color: Colors.white)),
+                        onTap: () {
+                          onSelected(option);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      }
     );
-
-    return LayoutBuilder(builder: (context, constraints) {
-      return DropdownMenu<String>(
-        width: constraints.maxWidth,
-        controller: controller,
-        initialSelection: isCualquiera ? null : safeValue,
-        enableFilter: true,
-        requestFocusOnTap: true,
-        label: Text(label),
-        hintText: l10n.any,
-        leadingIcon: Icon(icon, color: Theme.of(context).colorScheme.primary),
-        menuHeight: 250,
-        
-        textStyle: const TextStyle(color: Colors.white),
-        
-        inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          filled: true,
-          fillColor: const Color(0xFF1E232F),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        ),
-
-        trailingIcon: !isCualquiera
-            ? IconButton(
-                icon: const Icon(Icons.clear, size: 20, color: Colors.grey),
-                onPressed: () {
-                  controller.clear();
-                  onSelected('Cualquiera');
-                },
-              )
-            : null,
-            
-        onSelected: (String? newVal) {
-          onSelected(newVal ?? 'Cualquiera');
-        },
-        
-        dropdownMenuEntries: uniqueItems.map<DropdownMenuEntry<String>>((String itemValue) {
-          final label = itemValue == 'Cualquiera' ? l10n.any : itemValue;
-          return DropdownMenuEntry<String>(
-            value: itemValue,
-            label: label,
-            style: ButtonStyle(
-              foregroundColor: MaterialStateProperty.all(Colors.white),
-              textStyle: MaterialStateProperty.all(const TextStyle(fontWeight: FontWeight.w500)),
-            )
-          );
-        }).toList(),
-      );
-    });
   }
 
   @override
@@ -657,7 +687,8 @@ class _HomePageState extends State<HomePage> {
     _selectedVoiceLanguage != 'Cualquiera' || 
     _selectedTextLanguage != 'Cualquiera' ||
     _selectedYear != 'Cualquiera' || 
-    _selectedGenre != 'Cualquiera';
+    _selectedGenre != 'Cualquiera' ||
+    _selectedPlatform != 'Cualquiera';
 
   Widget buildBody() {
     final l10n = AppLocalizations.of(context);
@@ -726,6 +757,8 @@ class _HomePageState extends State<HomePage> {
                     _buildFilterChip('${l10n.filterText}: $_selectedTextLanguage'),
                   if (_selectedGenre != 'Cualquiera')
                     _buildFilterChip('${l10n.filterGenre}: $_selectedGenre'),
+                  if (_selectedPlatform != 'Cualquiera')
+                    _buildFilterChip('${l10n.filterPlatform}: $_selectedPlatform'),
                   if (_selectedYear != 'Cualquiera')
                     _buildFilterChip('${l10n.filterYear}: $_selectedYear'),
                 ],
@@ -828,7 +861,6 @@ class _HomePageState extends State<HomePage> {
                         ],
                       ),
                       const SizedBox(height: 6),
-                      // New Platform Row
                       Row(
                         children: [
                           Icon(Icons.gamepad, size: 12, color: Colors.grey.shade500),

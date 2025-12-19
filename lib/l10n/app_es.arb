@@ -13,6 +13,7 @@
   "filterText": "Idioma (Textos)",
   "filterGenre": "Género",
   "filterYear": "Año Lanzamiento",
+  "filterPlatform": "Plataforma",
   "btnApply": "Aplicar Filtros",
   "btnClear": "Limpiar",
   "any": "Cualquiera",
@@ -30,5 +31,6 @@
   "storage": "Almacenamiento",
   "viewIn": "Ver en",
   "release": "Lanzamiento",
-  "metascore": "Puntuación"
+  "metascore": "Puntuación",
+  "btnTranslate": "Traducir"
 }

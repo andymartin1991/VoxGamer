@@ -11,12 +11,12 @@ class SyncResult {
   final List<String> voices;
   final List<String> texts;
   final List<String> years;
+  final List<String> platforms;
 
-  SyncResult(this.games, this.genres, this.voices, this.texts, this.years);
+  SyncResult(this.games, this.genres, this.voices, this.texts, this.years, this.platforms);
 }
 
 class DataService {
-  // URL actualizada a global_games.json.gz
   static const String _dataUrl = 'https://raw.githubusercontent.com/andymartin1991/SteamDataScraper/main/global_games.json.gz';
 
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
@@ -72,11 +72,12 @@ class DataService {
             'voices': result.voices,
             'texts': result.texts,
             'years': result.years,
+            'platforms': result.platforms,
           };
         } else {
           debugPrint('Insertando ${result.games.length} juegos en SQLite (Nativo)...');
           await _dbHelper.insertGames(result.games);
-          await _dbHelper.saveMetaFilters(result.genres, result.voices, result.texts, result.years);
+          await _dbHelper.saveMetaFilters(result.genres, result.voices, result.texts, result.years, result.platforms);
         }
 
         debugPrint('Sincronización finalizada correctamente.');
@@ -109,6 +110,7 @@ class DataService {
       final Set<String> voicesSet = {};
       final Set<String> textsSet = {};
       final Set<String> yearsSet = {};
+      final Set<String> platformsSet = {};
 
       for (var game in games) {
         for (var g in game.generos) {
@@ -119,6 +121,9 @@ class DataService {
         }
         for (var t in game.idiomas.textos) {
           if (t.isNotEmpty) textsSet.add(t.trim());
+        }
+        for (var p in game.plataformas) {
+          if (p.isNotEmpty) platformsSet.add(p.trim());
         }
         
         if (game.fechaLanzamiento.length >= 4) {
@@ -133,8 +138,9 @@ class DataService {
       final voicesList = voicesSet.toList()..sort();
       final textsList = textsSet.toList()..sort();
       final yearsList = yearsSet.toList()..sort((a, b) => b.compareTo(a));
+      final platformsList = platformsSet.toList()..sort();
 
-      return SyncResult(games, genresList, voicesList, textsList, yearsList);
+      return SyncResult(games, genresList, voicesList, textsList, yearsList, platformsList);
 
     } catch (e) {
       debugPrint('Error en _decompressAndParse: $e');
@@ -150,6 +156,7 @@ class DataService {
     String? textLanguage,
     String? year,
     String? genre,
+    String? platform,
   }) async {
     if (kIsWeb) {
       var filtered = _webCache;
@@ -175,6 +182,10 @@ class DataService {
         filtered = filtered.where((g) => g.generos.contains(genre)).toList();
       }
 
+      if (platform != null && platform != 'Cualquiera') {
+        filtered = filtered.where((g) => g.plataformas.contains(platform)).toList();
+      }
+
       if (offset >= filtered.length) return [];
 
       final end = (offset + limit < filtered.length)
@@ -191,6 +202,7 @@ class DataService {
           textLanguage: textLanguage,
           year: year,
           genre: genre,
+          platform: platform,
         );
     }
   }

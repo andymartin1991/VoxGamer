@@ -13,6 +13,7 @@
   "filterText": "Text Language",
   "filterGenre": "Genre",
   "filterYear": "Release Year",
+  "filterPlatform": "Platform",
   "btnApply": "Apply Filters",
   "btnClear": "Clear",
   "any": "Any",
@@ -30,5 +31,6 @@
   "storage": "Storage",
   "viewIn": "View in",
   "release": "Release",
-  "metascore": "Metascore"
+  "metascore": "Metascore",
+  "btnTranslate": "Translate"
 }

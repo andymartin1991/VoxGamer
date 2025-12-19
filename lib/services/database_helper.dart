@@ -15,7 +15,7 @@ class DatabaseHelper {
       throw UnsupportedError('SQLite no está soportado en Web.');
     }
     if (_database != null) return _database!;
-    _database = await _initDB('voxgamer_v4.db'); // Incrementada version a v4 para forzar recreación limpia
+    _database = await _initDB('voxgamer_v5.db'); // Incrementamos a v5
     return _database!;
   }
 
@@ -25,7 +25,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 2, // Incrementamos versión interna
+      version: 3, // Incrementamos versión interna
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -40,10 +40,12 @@ class DatabaseHelper {
       fecha_lanzamiento TEXT,
       storage TEXT,
       generos TEXT,
-      plataformas TEXT, -- Nuevo campo
+      plataformas TEXT,
       img_principal TEXT,
       galeria TEXT,
       idiomas TEXT,
+      idiomas_voces TEXT, -- Columna dedicada para filtro de voces
+      idiomas_textos TEXT, -- Columna dedicada para filtro de textos
       metacritic INTEGER,
       tiendas TEXT,
       cleanTitle TEXT,
@@ -64,8 +66,7 @@ class DatabaseHelper {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      // Si la versión es vieja, borramos todo para forzar resync limpio con la nueva estructura
+    if (oldVersion < 3) {
       await db.execute('DROP TABLE IF EXISTS games');
       await db.execute('DROP TABLE IF EXISTS meta_filters');
       await _createDB(db, newVersion);
@@ -80,7 +81,12 @@ class DatabaseHelper {
     debugPrint('Base de datos limpiada.');
   }
 
-  Future<void> saveMetaFilters(List<String> genres, List<String> voices, List<String> texts, List<String> years) async {
+  Future<void> saveMetaFilters(
+      List<String> genres, 
+      List<String> voices, 
+      List<String> texts, 
+      List<String> years, 
+      List<String> platforms) async {
     if (kIsWeb) return;
     final db = await database;
     
@@ -101,10 +107,13 @@ class DatabaseHelper {
       for (var y in years) {
         batch.insert('meta_filters', {'type': 'year', 'value': y});
       }
+      for (var p in platforms) {
+        batch.insert('meta_filters', {'type': 'platform', 'value': p});
+      }
       
       await batch.commit(noResult: true);
     });
-    debugPrint('Filtros dinámicos (incluyendo años) guardados en DB.');
+    debugPrint('Filtros dinámicos (incluyendo plataformas) guardados en DB.');
   }
 
   Future<Map<String, List<String>>> getMetaFilters() async {
@@ -117,6 +126,7 @@ class DatabaseHelper {
     final voices = <String>[];
     final texts = <String>[];
     final years = <String>[];
+    final platforms = <String>[];
     
     for (var row in result) {
       final val = row['value'] as String;
@@ -125,6 +135,7 @@ class DatabaseHelper {
         case 'voice': voices.add(val); break;
         case 'text': texts.add(val); break;
         case 'year': years.add(val); break;
+        case 'platform': platforms.add(val); break;
       }
     }
     
@@ -132,12 +143,14 @@ class DatabaseHelper {
     voices.sort();
     texts.sort();
     years.sort((a, b) => b.compareTo(a)); 
+    platforms.sort();
     
     return {
       'genres': genres,
       'voices': voices,
       'texts': texts,
       'years': years,
+      'platforms': platforms,
     };
   }
 
@@ -166,13 +179,15 @@ class DatabaseHelper {
             'fecha_lanzamiento': game.fechaLanzamiento,
             'storage': game.storage,
             'generos': jsonEncode(game.generos),
-            'plataformas': jsonEncode(game.plataformas), // Insertamos plataformas
+            'plataformas': jsonEncode(game.plataformas),
             'img_principal': game.imgPrincipal,
             'galeria': jsonEncode(game.galeria),
             'idiomas': jsonEncode({
               'voces': game.idiomas.voces,
               'textos': game.idiomas.textos,
             }),
+            'idiomas_voces': jsonEncode(game.idiomas.voces), // Guardamos solo las voces
+            'idiomas_textos': jsonEncode(game.idiomas.textos), // Guardamos solo los textos
             'metacritic': game.metacritic,
             'tiendas': jsonEncode(game.tiendas.map((t) => {
               'tienda': t.tienda,
@@ -199,6 +214,7 @@ class DatabaseHelper {
     String? textLanguage,
     String? year,
     String? genre,
+    String? platform,
   }) async {
     if (kIsWeb) return [];
 
@@ -221,12 +237,14 @@ class DatabaseHelper {
       whereArgs.add(arg);
     }
 
+    // CORRECCIÓN FILTROS: Usamos las columnas dedicadas para evitar falsos positivos
     if (voiceLanguage != null && voiceLanguage != 'Cualquiera') {
-      addCondition('idiomas LIKE ?', '%"voces":%${jsonEncode(voiceLanguage)}%');
+      // Busca exact match del string json dentro del array json
+      addCondition('idiomas_voces LIKE ?', '%${jsonEncode(voiceLanguage)}%');
     }
 
     if (textLanguage != null && textLanguage != 'Cualquiera') {
-      addCondition('idiomas LIKE ?', '%"textos":%${jsonEncode(textLanguage)}%');
+      addCondition('idiomas_textos LIKE ?', '%${jsonEncode(textLanguage)}%');
     }
 
     if (year != null && year != 'Cualquiera') {
@@ -235,6 +253,10 @@ class DatabaseHelper {
 
     if (genre != null && genre != 'Cualquiera') {
       addCondition('generos LIKE ?', '%"$genre"%'); 
+    }
+
+    if (platform != null && platform != 'Cualquiera') {
+      addCondition('plataformas LIKE ?', '%"$platform"%');
     }
 
     try {
@@ -251,10 +273,11 @@ class DatabaseHelper {
           Map<String, dynamic> jsonMap = Map.of(dbMap);
           try {
             jsonMap['generos'] = jsonDecode(dbMap['generos'] ?? '[]');
-            jsonMap['plataformas'] = jsonDecode(dbMap['plataformas'] ?? '[]'); // Parseamos plataformas
+            jsonMap['plataformas'] = jsonDecode(dbMap['plataformas'] ?? '[]');
             jsonMap['galeria'] = jsonDecode(dbMap['galeria'] ?? '[]');
             jsonMap['idiomas'] = jsonDecode(dbMap['idiomas'] ?? '{}');
             jsonMap['tiendas'] = jsonDecode(dbMap['tiendas'] ?? '[]');
+            // No necesitamos decodificar idiomas_voces/textos aquí, son solo para filtrar
           } catch (e) {
             // Error silencioso
           }

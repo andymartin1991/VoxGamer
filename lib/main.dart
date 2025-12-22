@@ -2,16 +2,41 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:async';
+import 'dart:io'; 
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
-import 'models/steam_game.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'models/game.dart';
 import 'services/data_service.dart';
+import 'services/database_helper.dart'; 
+import 'services/background_service.dart';
 import 'screens/game_detail_page.dart';
+import 'widgets/minigame_overlay.dart'; 
 
-void main() {
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  const AndroidInitializationSettings initializationSettingsAndroid =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+  const DarwinInitializationSettings initializationSettingsDarwin =
+      DarwinInitializationSettings();
+  const InitializationSettings initializationSettings = InitializationSettings(
+    android: initializationSettingsAndroid,
+    iOS: initializationSettingsDarwin,
+  );
+  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+
+  if (!kIsWeb) {
+    await initializeBackgroundService();
+  }
+
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     systemNavigationBarColor: Color(0xFF0A0E14),
     statusBarColor: Colors.transparent,
@@ -68,6 +93,12 @@ class VoxGamerApp extends StatelessWidget {
           titleTextStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
           iconTheme: IconThemeData(color: Colors.white),
         ),
+        tabBarTheme: TabBarTheme(
+          labelColor: primaryNeon,
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: primaryNeon,
+          dividerColor: Colors.transparent, 
+        ),
         cardTheme: CardTheme(
           color: cardBg,
           elevation: 8,
@@ -95,30 +126,32 @@ class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<HomePage> createState() => HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final DataService _dataService = DataService();
-  final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
-  Timer? _debounce;
+  
+  final GlobalKey<GameListTabState> _gamesTabKey = GlobalKey();
+  final GlobalKey<GameListTabState> _dlcsTabKey = GlobalKey();
 
-  final List<SteamGame> _games = [];
-  bool _isLoading = false;
+  Timer? _debounce;
   bool _isSyncing = false;
+  double _syncProgress = 0.0;
   String _statusMessage = '';
 
-  bool _hasMore = true;
-  int _page = 0;
-  final int _limit = 20;
-  String _searchQuery = '';
+  // Control de suscripciones
+  StreamSubscription? _progressSub;
+  StreamSubscription? _successSub;
+  StreamSubscription? _errorSub;
 
   String _selectedVoiceLanguage = 'Cualquiera';
   String _selectedTextLanguage = 'Cualquiera';
   String _selectedYear = 'Cualquiera';
   String _selectedGenre = 'Cualquiera';
   String _selectedPlatform = 'Cualquiera'; 
+  String _selectedSort = 'date'; 
 
   List<String> _voiceLanguages = ['Cualquiera'];
   List<String> _textLanguages = ['Cualquiera'];
@@ -126,58 +159,144 @@ class _HomePageState extends State<HomePage> {
   List<String> _years = ['Cualquiera'];
   List<String> _platforms = ['Cualquiera']; 
 
+  // GETTERS PÚBLICOS
+  String get selectedVoiceLanguage => _selectedVoiceLanguage;
+  String get selectedTextLanguage => _selectedTextLanguage;
+  String get selectedYear => _selectedYear;
+  String get selectedGenre => _selectedGenre;
+  String get selectedPlatform => _selectedPlatform;
+  String get selectedSort => _selectedSort;
+  TextEditingController get searchController => _searchController;
+  bool get isSyncing => _isSyncing;
+
   @override
   void initState() {
     super.initState();
-    _checkAndLoadInitialData();
-    _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addObserver(this); 
+    _requestNotificationPermissions(); 
+    _checkAndLoadInitialData(); // Punto crítico de inicio
     _searchController.addListener(_onSearchChanged);
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_statusMessage.isEmpty) {
-        final l10n = AppLocalizations.of(context);
-        if (l10n != null) {
-          _statusMessage = l10n.initializing;
+  void _setupServiceListeners() {
+    _progressSub?.cancel();
+    _successSub?.cancel();
+    _errorSub?.cancel();
+
+    final service = FlutterBackgroundService();
+
+    _progressSub = service.on('progress').listen((event) {
+      if (event != null && mounted) {
+        final percent = event['percent'] as int;
+        if (_syncProgress != percent / 100.0) {
+           setState(() {
+            _isSyncing = true;
+            _syncProgress = percent / 100.0;
+            _statusMessage = 'Procesando... $percent%';
+          });
         }
+      }
+    });
+
+    _successSub = service.on('success').listen((event) {
+      if (mounted) {
+        _finishSync(success: true);
+      }
+    });
+    
+    _errorSub = service.on('error').listen((event) {
+      if (mounted) {
+        _updateStatus('Error en segundo plano: ${event?['message']}');
+        _finishSync(success: false);
+      }
+    });
+  }
+  
+  void _finishSync({bool success = true}) async {
+    WakelockPlus.disable();
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_syncing', false);
+
+    if (mounted) {
+      setState(() => _isSyncing = false); // Quitamos overlay
+      
+      if (success) {
+        await _loadFilterOptions();
+        _refreshLists();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('¡Actualización completada!')));
+      }
+    }
+  }
+
+  Future<void> _requestNotificationPermissions() async {
+    if (Platform.isAndroid) {
+      await flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
     }
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     _debounce?.cancel();
+    
+    _progressSub?.cancel();
+    _successSub?.cancel();
+    _errorSub?.cancel();
+    
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) { 
+    if (state == AppLifecycleState.resumed) {
+      // Al volver, verificamos si el servicio sigue vivo
+      _checkServiceStatus();
+    }
+  }
+  
+  Future<void> _checkServiceStatus() async {
+    if (kIsWeb) return;
+    
+    final service = FlutterBackgroundService();
+    final isRunning = await service.isRunning();
+    
+    if (isRunning) {
+       // Si el servicio corre, NOSOTROS debemos mostrar sincronización,
+       // independientemente de lo que diga la UI antigua.
+       if (!_isSyncing) {
+         setState(() => _isSyncing = true);
+         _setupServiceListeners();
+       }
+    } else {
+       // Si el servicio NO corre, pero nosotros seguimos mostrando "cargando",
+       // significa que terminó (o murió) mientras no mirábamos.
+       if (_isSyncing) {
+          // Asumimos éxito para refrescar y quitar overlay
+          _finishSync(success: true); 
+       }
+    }
+  }
+  
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      _resetAndReload();
+      _refreshLists();
     });
   }
 
-  void _resetAndReload() {
-    setState(() {
-      _searchQuery = _searchController.text;
-      _page = 0;
-      _games.clear();
-      _hasMore = true;
-    });
-    _loadMoreGames();
+  void _refreshLists() {
+    _gamesTabKey.currentState?.reload();
+    _dlcsTabKey.currentState?.reload();
   }
 
   void _updateStatus(String msg) {
     if (mounted) setState(() => _statusMessage = msg);
-    debugPrint(msg);
   }
 
   Future<void> _loadFilterOptions() async {
-    try {
-      final options = await _dataService.getFilterOptions();
+    final options = await _dataService.getFilterOptions();
       if (options.isNotEmpty && mounted) {
         setState(() {
           if (options.containsKey('voices')) {
@@ -197,280 +316,251 @@ class _HomePageState extends State<HomePage> {
           }
         });
       }
-    } catch (e) {
-      debugPrint('Error cargando filtros: $e');
-    }
   }
 
+  Future<bool> _wasSyncInterrupted() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('is_syncing') ?? false;
+  }
+
+  // --- LÓGICA DE INICIO ROBUSTA ---
   Future<void> _checkAndLoadInitialData() async {
-    await Future.delayed(const Duration(milliseconds: 100));
-    if (!mounted) return;
+      final l10n = AppLocalizations.of(context)!;
+      final dbHasData = (await _dataService.countLocalGames()) > 0;
 
-    setState(() => _isSyncing = true);
-
-    final l10n = AppLocalizations.of(context)!;
-
-    try {
-      _updateStatus(l10n.connecting);
-      bool needsUpdate = await _dataService.needsUpdate();
-
-      if (needsUpdate) {
-        _updateStatus(l10n.syncing);
-        await _dataService.syncGames();
-        _updateStatus(l10n.ready);
-      } else {
-        _updateStatus(l10n.loadingLib);
+      // CASO 1: LA BASE DE DATOS YA TIENE DATOS.
+      // Carga la app inmediatamente, sin sincronización.
+      if (dbHasData) {
+          debugPrint("La base de datos tiene datos. Cargando desde SQLite local.");
+          
+          // Limpia cualquier estado de sincronización inconsistente de un reinicio en caliente.
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('is_syncing', false);
+          
+          final service = FlutterBackgroundService();
+          if (await service.isRunning()) {
+              service.invoke('stopService');
+          }
+          
+          await _loadFilterOptions();
+          _refreshLists();
+          return;
       }
 
-      await _loadFilterOptions();
-      await _loadMoreGames();
-
-    } catch (e, stackTrace) {
-      _updateStatus('${l10n.errorInit}: $e');
-      debugPrint('Stacktrace: $stackTrace');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${l10n.errorInit}: $e'), backgroundColor: Colors.redAccent),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSyncing = false);
-    }
-  }
-
-  Future<void> _forceSync() async {
-    final l10n = AppLocalizations.of(context)!;
-    setState(() => _isSyncing = true);
-    _games.clear();
-    try {
-      _updateStatus(l10n.syncing);
-      await _dataService.syncGames();
-      await _loadFilterOptions();
-      _resetAndReload();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.ready)),
-        );
-      }
-    } catch (e) {
-      _updateStatus('Error: $e');
-    } finally {
-      if (mounted) setState(() => _isSyncing = false);
-    }
-  }
-
-  Future<void> _hardReset() async {
-    final l10n = AppLocalizations.of(context)!;
-    bool? confirm = await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(l10n.resetTitle),
-        content: Text(l10n.resetContent),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(l10n.cancel)),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: Text(l10n.purgeReload, style: const TextStyle(color: Colors.redAccent))),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    setState(() => _isSyncing = true);
-    _games.clear();
-
-    try {
-      _updateStatus(l10n.initializing);
-      await _dataService.clearDatabase();
-
-      _updateStatus(l10n.syncing);
-      await _dataService.syncGames();
+      // CASO 2: LA BASE DE DATOS ESTÁ VACÍA.
+      // Esto significa que es una instalación limpia o se borraron los datos. Se debe sincronizar.
       
-      await _loadFilterOptions();
-
-      _resetAndReload();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.ready)),
-        );
+      bool interrupted = await _wasSyncInterrupted();
+      
+      if (interrupted) {
+          // Si se interrumpió, intenta usar el archivo .json.gz ya descargado.
+          debugPrint("BBDD vacía pero la sincronización fue interrumpida. Reintentando desde archivo local.");
+          ScaffoldMessenger.of(context).showSnackBar(
+             SnackBar(content: Text(l10n.msgSyncInterrupted), duration: const Duration(seconds: 4)),
+           );
+          _updateCatalog(force: true, forceDownload: false);
+      } else {
+          // Si no, es una instalación 100% limpia. Descarga y procesa.
+          debugPrint("BBDD vacía. Empezando sincronización inicial completa.");
+          _updateCatalog(force: true, forceDownload: true);
       }
-    } catch (e) {
-      _updateStatus('Error: $e');
-    } finally {
-      if (mounted) setState(() => _isSyncing = false);
-    }
   }
 
-  Future<void> _loadMoreGames() async {
-    if (_isLoading || !_hasMore) return;
-
-    setState(() => _isLoading = true);
-
-    try {
-      final newGames = await _dataService.getLocalGames(
-        limit: _limit,
-        offset: _page * _limit,
-        query: _searchQuery.isNotEmpty ? _searchQuery : null,
-        voiceLanguage: _selectedVoiceLanguage,
-        textLanguage: _selectedTextLanguage,
-        year: _selectedYear,
-        genre: _selectedGenre,
-        platform: _selectedPlatform,
+  Future<void> _updateCatalog({bool force = false, bool forceDownload = true}) async {
+    final l10n = AppLocalizations.of(context)!;
+    
+    if (!force) {
+      bool? confirm = await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(l10n.syncQuick), 
+          content: Text(l10n.dialogUpdateContent),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: Text(l10n.cancel)),
+            TextButton(onPressed: () => Navigator.pop(context, true), child: Text(l10n.btnApply, style: const TextStyle(color: Colors.blueAccent))),
+          ],
+        ),
       );
-
-      if (!mounted) return;
-
-      setState(() {
-        _page++;
-        _games.addAll(newGames);
-        if (newGames.length < _limit) {
-          _hasMore = false;
-        }
-        _isLoading = false;
-      });
-
-    } catch (e) {
-      _updateStatus('Error: $e');
-      if (mounted) setState(() => _isLoading = false);
+      if (confirm != true) return;
     }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_syncing', true);
+
+    setState(() {
+      _isSyncing = true;
+      _syncProgress = 0.0;
+    });
+
+    WakelockPlus.enable();
+    _setupServiceListeners(); // Enganchamos listeners antes de arrancar
+
+    final service = FlutterBackgroundService();
+    if (!(await service.isRunning())) {
+      await service.startService();
+    }
+    // Pequeño delay para asegurar que el servicio arrancó y está escuchando
+    await Future.delayed(const Duration(milliseconds: 500));
+    service.invoke('startSync', {'forceDownload': forceDownload});
   }
 
-  void _onScroll() {
-    if (_scrollController.position.pixels >=
-        _scrollController.position.maxScrollExtent - 200) {
-      _loadMoreGames();
-    }
+  // MÉTODO PÚBLICO
+  bool hasActiveFilters() => 
+    _selectedVoiceLanguage != 'Cualquiera' || 
+    _selectedTextLanguage != 'Cualquiera' ||
+    _selectedYear != 'Cualquiera' || 
+    _selectedGenre != 'Cualquiera' ||
+    _selectedPlatform != 'Cualquiera' ||
+    _selectedSort != 'date';
+
+  // NUEVO MÉTODO PÚBLICO PARA ELIMINAR FILTROS
+  void removeFilter(String filterType) {
+    setState(() {
+      switch (filterType) {
+        case 'sort': _selectedSort = 'date'; break;
+        case 'platform': _selectedPlatform = 'Cualquiera'; break;
+        case 'genre': _selectedGenre = 'Cualquiera'; break;
+        case 'year': _selectedYear = 'Cualquiera'; break;
+        case 'voice': _selectedVoiceLanguage = 'Cualquiera'; break;
+        case 'text': _selectedTextLanguage = 'Cualquiera'; break;
+      }
+    });
+    _refreshLists();
   }
 
   void _showFilterDialog() {
     final l10n = AppLocalizations.of(context)!;
+    
+    if (_isSyncing) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.msgWaitSync)));
+      return;
+    }
+
     String tempVoice = _selectedVoiceLanguage;
     String tempText = _selectedTextLanguage;
     String tempYear = _selectedYear;
     String tempGenre = _selectedGenre;
     String tempPlatform = _selectedPlatform;
+    String tempSort = _selectedSort;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true, 
       backgroundColor: const Color(0xFF151921),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) {
         return StatefulBuilder( 
           builder: (BuildContext context, StateSetter setModalState) {
-            return Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: SingleChildScrollView( 
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            return FutureBuilder<List<String>>(
+              future: _dataService.getTopPlatforms(5), 
+              builder: (context, snapshot) {
+                final topPlatforms = snapshot.data ?? []; 
+
+                return Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: SingleChildScrollView( 
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(l10n.filtersConfig, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-                        IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                
-                    _buildSearchableDropdown(
-                      label: l10n.filterVoice,
-                      value: tempVoice,
-                      items: _voiceLanguages,
-                      icon: Icons.mic,
-                      onSelected: (val) => setModalState(() => tempVoice = val ?? 'Cualquiera'),
-                    ),
-                    const SizedBox(height: 16),
-                
-                    _buildSearchableDropdown(
-                      label: l10n.filterText,
-                      value: tempText,
-                      items: _textLanguages,
-                      icon: Icons.subtitles,
-                      onSelected: (val) => setModalState(() => tempText = val ?? 'Cualquiera'),
-                    ),
-                    const SizedBox(height: 16),
-                
-                    _buildSearchableDropdown(
-                      label: l10n.filterGenre,
-                      value: tempGenre,
-                      items: _genres,
-                      icon: Icons.category,
-                      onSelected: (val) => setModalState(() => tempGenre = val ?? 'Cualquiera'),
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    _buildSearchableDropdown(
-                      label: l10n.filterPlatform,
-                      value: tempPlatform,
-                      items: _platforms,
-                      icon: Icons.gamepad,
-                      onSelected: (val) => setModalState(() => tempPlatform = val ?? 'Cualquiera'),
-                    ),
-                    const SizedBox(height: 16),
-                
-                    _buildSearchableDropdown(
-                      label: l10n.filterYear,
-                      value: tempYear,
-                      items: _years,
-                      icon: Icons.calendar_today,
-                      onSelected: (val) => setModalState(() => tempYear = val ?? 'Cualquiera'),
-                    ),
-                    
-                    const SizedBox(height: 32),
-                
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              side: BorderSide(color: Colors.grey.shade700),
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                            ),
-                            onPressed: () {
-                              setModalState(() {
-                                tempVoice = 'Cualquiera';
-                                tempText = 'Cualquiera';
-                                tempYear = 'Cualquiera';
-                                tempGenre = 'Cualquiera';
-                                tempPlatform = 'Cualquiera';
-                              });
-                            },
-                            child: Text(l10n.btnClear, style: const TextStyle(color: Colors.white)),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(l10n.filtersConfig, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+                            IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+
+                        const Text("ORDENAR POR", style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(child: _buildSortChip("Fecha Lanzamiento", 'date', tempSort, (val) => setModalState(() => tempSort = val))),
+                            const SizedBox(width: 8),
+                            Expanded(child: _buildSortChip("Mejor Valorados", 'score', tempSort, (val) => setModalState(() => tempSort = val))),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+
+                        const Text("PLATAFORMA", style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        
+                        if (snapshot.connectionState == ConnectionState.waiting)
+                           const Center(child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator())),
+                        
+                        if (snapshot.hasData)
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              _buildPlatformChip("Cualquiera", tempPlatform, (val) => setModalState(() => tempPlatform = val)),
+                              ...topPlatforms.map((p) => _buildPlatformChip(p, tempPlatform, (val) => setModalState(() => tempPlatform = val))).toList(),
+                            ],
+                          ),
+                        
+                        if (!topPlatforms.contains(tempPlatform) && tempPlatform != 'Cualquiera') ...[
+                           const SizedBox(height: 8),
+                            _buildSearchableDropdown(label: "Otra plataforma...", value: tempPlatform, items: _platforms, icon: Icons.gamepad, onSelected: (val) => setModalState(() => tempPlatform = val ?? 'Cualquiera'), context: context),
+                        ] else ...[
+                           const SizedBox(height: 8),
+                           TextButton.icon(
+                             onPressed: () {}, 
+                             icon: const Icon(Icons.search, size: 16),
+                             label: const Text("Buscar otra plataforma...", style: TextStyle(fontSize: 13)),
+                           ),
+                           _buildSearchableDropdown(label: "Buscar plataforma...", value: '', items: _platforms, icon: Icons.gamepad, onSelected: (val) => setModalState(() => tempPlatform = val ?? 'Cualquiera'), context: context),
+                        ],
+
+                        const SizedBox(height: 24),
+                        const Divider(color: Colors.white10),
+                        const SizedBox(height: 16),
+
+                        _buildSearchableDropdown(label: l10n.filterGenre, value: tempGenre, items: _genres, icon: Icons.category, onSelected: (val) => setModalState(() => tempGenre = val ?? 'Cualquiera'), context: context),
+                        const SizedBox(height: 16),
+                        _buildSearchableDropdown(label: l10n.filterYear, value: tempYear, items: _years, icon: Icons.calendar_today, onSelected: (val) => setModalState(() => tempYear = val ?? 'Cualquiera'), context: context),
+                        const SizedBox(height: 16),
+                        
+                        Theme(
+                          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                          child: ExpansionTile(
+                            title: Text(l10n.languages, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            leading: const Icon(Icons.language, color: Colors.grey),
+                            collapsedIconColor: Colors.grey,
+                            children: [
+                              _buildSearchableDropdown(label: l10n.filterVoice, value: tempVoice, items: _voiceLanguages, icon: Icons.mic, onSelected: (val) => setModalState(() => tempVoice = val ?? 'Cualquiera'), context: context),
+                              const SizedBox(height: 12),
+                              _buildSearchableDropdown(label: l10n.filterText, value: tempText, items: _textLanguages, icon: Icons.subtitles, onSelected: (val) => setModalState(() => tempText = val ?? 'Cualquiera'), context: context),
+                              const SizedBox(height: 12),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: Theme.of(context).colorScheme.primary,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _selectedVoiceLanguage = tempVoice;
-                                _selectedTextLanguage = tempText;
-                                _selectedYear = tempYear;
-                                _selectedGenre = tempGenre;
-                                _selectedPlatform = tempPlatform;
-                              });
-                              Navigator.pop(context);
-                              _resetAndReload();
-                            },
-                            child: Text(l10n.btnApply, style: const TextStyle(fontWeight: FontWeight.bold)),
-                          ),
+
+                        const SizedBox(height: 32),
+                        Row(
+                          children: [
+                            Expanded(child: OutlinedButton(style: OutlinedButton.styleFrom(side: BorderSide(color: Colors.grey.shade700), padding: const EdgeInsets.symmetric(vertical: 16)), onPressed: () { setModalState(() { tempVoice = 'Cualquiera'; tempText = 'Cualquiera'; tempYear = 'Cualquiera'; tempGenre = 'Cualquiera'; tempPlatform = 'Cualquiera'; tempSort = 'date'; }); }, child: Text(l10n.btnClear, style: const TextStyle(color: Colors.white)))),
+                            const SizedBox(width: 16),
+                            Expanded(child: FilledButton(style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, padding: const EdgeInsets.symmetric(vertical: 16)), onPressed: () { 
+                              setState(() { 
+                                _selectedVoiceLanguage = tempVoice; 
+                                _selectedTextLanguage = tempText; 
+                                _selectedYear = tempYear; 
+                                _selectedGenre = tempGenre; 
+                                _selectedPlatform = tempPlatform; 
+                                _selectedSort = tempSort;
+                              }); 
+                              Navigator.pop(context); 
+                              _refreshLists(); 
+                            }, child: Text(l10n.btnApply, style: const TextStyle(fontWeight: FontWeight.bold)))),
+                          ],
                         ),
+                        const SizedBox(height: 16),
+                        Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom)),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom)),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              }
             );
           },
         );
@@ -478,262 +568,295 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildSearchableDropdown({
-    required String label, 
-    required String value, 
-    required List<String> items, 
-    required IconData icon,
-    required Function(String?) onSelected
-  }) {
+  Widget _buildSortChip(String label, String value, String groupValue, Function(String) onSelected) {
+    final isSelected = value == groupValue;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (selected) => onSelected(value),
+      selectedColor: Theme.of(context).colorScheme.primary,
+      backgroundColor: const Color(0xFF1E232F),
+      labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white),
+      side: BorderSide.none,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    );
+  }
+
+  Widget _buildPlatformChip(String platform, String groupValue, Function(String) onSelected) {
+    final isSelected = platform == groupValue;
+    return ChoiceChip(
+      label: Text(platform),
+      selected: isSelected,
+      onSelected: (selected) => onSelected(platform),
+      selectedColor: Theme.of(context).colorScheme.primary.withOpacity(0.8),
+      backgroundColor: const Color(0xFF2A3040),
+      labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.grey.shade400, fontSize: 12),
+      side: BorderSide.none,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+    );
+  }
+
+  Widget _buildSearchableDropdown({required String label, required String value, required List<String> items, required IconData icon, required Function(String?) onSelected, required BuildContext context}) {
     final l10n = AppLocalizations.of(context)!;
     final uniqueItems = items.toSet().toList();
     final safeValue = uniqueItems.contains(value) ? value : 'Cualquiera';
     final isCualquiera = safeValue == 'Cualquiera';
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
+    return LayoutBuilder(builder: (context, constraints) {
         return Autocomplete<String>(
           key: ValueKey(safeValue),
           initialValue: TextEditingValue(text: isCualquiera ? '' : safeValue),
-          optionsBuilder: (TextEditingValue textEditingValue) {
-            if (textEditingValue.text.isEmpty) {
-              return uniqueItems;
-            }
-            return uniqueItems.where((String option) {
-              return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
-            });
+          optionsBuilder: (TextEditingValue v) {
+            if (v.text.isEmpty) return uniqueItems;
+            return uniqueItems.where((op) => op.toLowerCase().contains(v.text.toLowerCase()));
           },
-          onSelected: (String selection) {
-            onSelected(selection);
-          },
-          fieldViewBuilder: (BuildContext context, TextEditingController fieldTextEditingController, FocusNode fieldFocusNode, VoidCallback onFieldSubmitted) {
+          onSelected: onSelected,
+          fieldViewBuilder: (ctx, controller, focusNode, onSubmitted) {
             return TextField(
-              controller: fieldTextEditingController,
-              focusNode: fieldFocusNode,
+              controller: controller, focusNode: focusNode,
               decoration: InputDecoration(
-                labelText: label,
-                hintText: l10n.any,
+                labelText: label, hintText: l10n.any,
                 prefixIcon: Icon(icon, color: Theme.of(context).colorScheme.primary),
-                filled: true,
-                fillColor: const Color(0xFF1E232F),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                suffixIcon: fieldTextEditingController.text.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear, size: 20, color: Colors.grey),
-                      onPressed: () {
-                        fieldTextEditingController.clear();
-                        onSelected('Cualquiera');
-                        // Forzar refresco de opciones para mostrar todas
-                        fieldTextEditingController.notifyListeners();
-                      },
-                    )
-                  : null,
+                suffixIcon: controller.text.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, size: 20, color: Colors.grey), onPressed: () { controller.clear(); onSelected('Cualquiera'); }) : null,
               ),
               style: const TextStyle(color: Colors.white),
             );
           },
-          optionsViewBuilder: (BuildContext context, AutocompleteOnSelected<String> onSelected, Iterable<String> options) {
-            return Align(
-              alignment: Alignment.topLeft,
-              child: Material(
-                elevation: 4.0,
-                color: const Color(0xFF1E232F),
-                shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.vertical(bottom: Radius.circular(12))
-                ),
-                child: Container(
-                  width: constraints.maxWidth,
-                  constraints: const BoxConstraints(maxHeight: 250),
-                  child: ListView.builder(
-                    padding: EdgeInsets.zero,
-                    shrinkWrap: true,
-                    itemCount: options.length,
-                    itemBuilder: (BuildContext context, int index) {
-                      final String option = options.elementAt(index);
-                      return ListTile(
-                        title: Text(option == 'Cualquiera' ? l10n.any : option, style: const TextStyle(color: Colors.white)),
-                        onTap: () {
-                          onSelected(option);
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ),
-            );
+          optionsViewBuilder: (ctx, onSelected, options) {
+            return Align(alignment: Alignment.topLeft, child: Material(elevation: 4.0, color: const Color(0xFF1E232F),
+                child: Container(width: constraints.maxWidth, constraints: const BoxConstraints(maxHeight: 250),
+                  child: ListView.builder(padding: EdgeInsets.zero, shrinkWrap: true, itemCount: options.length, itemBuilder: (ctx, i) {
+                      final op = options.elementAt(i);
+                      return ListTile(title: Text(op == 'Cualquiera' ? l10n.any : op, style: const TextStyle(color: Colors.white)), onTap: () => onSelected(op));
+                  }),
+            )));
           },
         );
-      }
-    );
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     
-    return Scaffold(
-      appBar: AppBar(
-        title: _isSyncing
-          ? Text(_statusMessage, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.normal))
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Image.asset('assets/icon/app_logo.png', width: 32, height: 32),
-                const SizedBox(width: 8),
-                const Text('VoxGamer'),
-              ],
-            ),
-        actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
-            onSelected: (value) {
-              if (value == 'sync') _forceSync();
-              if (value == 'reset') _hardReset();
-            },
-            color: const Color(0xFF1E232F),
-            itemBuilder: (BuildContext context) {
-              final localL10n = AppLocalizations.of(context)!;
-              return [
-                PopupMenuItem(
-                  value: 'sync',
-                  child: Row(children: [const Icon(Icons.sync, color: Colors.blueAccent), const SizedBox(width: 8), Text(localL10n.syncQuick, style: const TextStyle(color: Colors.white))]),
-                ),
-                PopupMenuItem(
-                  value: 'reset',
-                  child: Row(children: [const Icon(Icons.delete_forever, color: Colors.redAccent), const SizedBox(width: 8), Text(localL10n.resetAll, style: const TextStyle(color: Colors.white))]),
-                ),
-              ];
-            },
-          ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(70),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
-                        )
-                      ]
-                    ),
-                    child: TextField(
-                      controller: _searchController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        hintText: l10n?.searchHint ?? '...',
-                        hintStyle: TextStyle(color: Colors.grey.shade500),
-                        prefixIcon: const Icon(Icons.search, color: Color(0xFF7C4DFF)),
-                        fillColor: const Color(0xFF1E232F),
-                        suffixIcon: _searchController.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear, color: Colors.grey),
-                                onPressed: () {
-                                  _searchController.clear();
-                                  _resetAndReload();
-                                },
-                              )
-                            : null,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                InkWell(
-                  onTap: _isSyncing ? null : _showFilterDialog,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: _hasActiveFilters() 
-                          ? Theme.of(context).colorScheme.primary 
-                          : const Color(0xFF1E232F),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: _hasActiveFilters() ? Colors.transparent : Colors.grey.shade800,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: _hasActiveFilters() 
-                            ? Theme.of(context).colorScheme.primary.withOpacity(0.4)
-                            : Colors.transparent,
-                          blurRadius: 10,
-                          spreadRadius: 1
-                        )
-                      ]
-                    ),
-                    child: const Icon(
-                      Icons.tune,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-      body: buildBody(),
-    );
-  }
-
-  bool _hasActiveFilters() => 
-    _selectedVoiceLanguage != 'Cualquiera' || 
-    _selectedTextLanguage != 'Cualquiera' ||
-    _selectedYear != 'Cualquiera' || 
-    _selectedGenre != 'Cualquiera' ||
-    _selectedPlatform != 'Cualquiera';
-
-  Widget buildBody() {
-    final l10n = AppLocalizations.of(context);
-    if (l10n == null) return const SizedBox();
-
-    if (_isSyncing) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              _buildShimmerLoading(rows: 3),
-              const SizedBox(height: 24),
-              Text(
-                _statusMessage,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 16, color: Colors.grey),
-              ),
+              Image.asset('assets/icon/app_logo.png', width: 32, height: 32),
+              const SizedBox(width: 8),
+              Text(l10n?.appTitle ?? 'VoxGamer'),
             ],
           ),
+          actions: [
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert, color: Colors.white),
+              onSelected: (value) { if (value == 'update') _updateCatalog(); },
+              color: const Color(0xFF1E232F),
+              itemBuilder: (context) => [PopupMenuItem(value: 'update', child: Row(children: [const Icon(Icons.cloud_sync, color: Colors.blueAccent), const SizedBox(width: 8), Text(l10n?.syncQuick ?? "Actualizar", style: const TextStyle(color: Colors.white))]))],
+            ),
+          ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(120), 
+            child: Column(
+              children: [
+                if (!_isSyncing)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            decoration: BoxDecoration(boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 4))]),
+                            child: TextField(
+                              controller: _searchController,
+                              style: const TextStyle(color: Colors.white),
+                              decoration: InputDecoration(
+                                hintText: l10n?.searchHint ?? '...',
+                                hintStyle: TextStyle(color: Colors.grey.shade500),
+                                prefixIcon: const Icon(Icons.search, color: Color(0xFF7C4DFF)),
+                                fillColor: const Color(0xFF1E232F),
+                                suffixIcon: _searchController.text.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, color: Colors.grey), onPressed: () { _searchController.clear(); _refreshLists(); }) : null,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        InkWell(
+                          onTap: _showFilterDialog,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: hasActiveFilters() ? Theme.of(context).colorScheme.primary : const Color(0xFF1E232F),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: hasActiveFilters() ? Colors.transparent : Colors.grey.shade800),
+                              boxShadow: [BoxShadow(color: hasActiveFilters() ? Theme.of(context).colorScheme.primary.withOpacity(0.4) : Colors.transparent, blurRadius: 10, spreadRadius: 1)]
+                            ),
+                            child: const Icon(Icons.tune, color: Colors.white),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                TabBar(
+                  tabs: [
+                    Tab(text: l10n?.tabGames ?? "JUEGOS", icon: const Icon(Icons.sports_esports)),
+                    Tab(text: l10n?.tabDlcs ?? "DLCs", icon: const Icon(Icons.extension)),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
-      );
-    }
+        body: Stack(
+          children: [
+            TabBarView(
+              children: [
+                GameListTab(
+                  key: _gamesTabKey,
+                  tipo: 'game',
+                  dataService: _dataService,
+                  parent: this,
+                ),
+                GameListTab(
+                  key: _dlcsTabKey,
+                  tipo: 'dlc',
+                  dataService: _dataService,
+                  parent: this,
+                ),
+              ],
+            ),
+            if (_isSyncing)
+               MinigameOverlay(progress: _syncProgress),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
+// Widget Reutilizable para las listas
+class GameListTab extends StatefulWidget {
+  final String tipo;
+  final DataService dataService;
+  final HomePageState parent;
+
+  const GameListTab({
+    super.key,
+    required this.tipo,
+    required this.dataService,
+    required this.parent,
+  });
+
+  @override
+  State<GameListTab> createState() => GameListTabState();
+}
+
+class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientMixin {
+  final List<Game> _games = [];
+  final ScrollController _scrollController = ScrollController();
+  bool _isLoading = false;
+  bool _hasMore = true;
+  int _page = 0;
+  final int _limit = 20;
+
+  @override
+  bool get wantKeepAlive => true; 
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMoreGames();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void clear() {
+    setState(() {
+      _games.clear();
+      _page = 0;
+      _hasMore = true;
+    });
+  }
+
+  void reload() {
+    clear();
+    _loadMoreGames();
+  }
+
+  Future<void> _loadMoreGames() async {
+    if (_isLoading) return;
+    if (!_hasMore && !widget.parent.isSyncing) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final newGames = await widget.dataService.getLocalGames(
+        limit: _limit,
+        offset: _page * _limit,
+        query: widget.parent.searchController.text.isNotEmpty ? widget.parent.searchController.text : null,
+        voiceLanguage: widget.parent.selectedVoiceLanguage,
+        textLanguage: widget.parent.selectedTextLanguage,
+        year: widget.parent.selectedYear,
+        genre: widget.parent.selectedGenre,
+        platform: widget.parent.selectedPlatform,
+        tipo: widget.tipo, 
+        sortBy: widget.parent.selectedSort,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _page++;
+        _games.addAll(newGames);
+        if (!widget.parent.isSyncing && newGames.length < _limit) {
+          _hasMore = false;
+        }
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      _loadMoreGames();
+    }
+  }
+
+  Color _getScoreColor(int score) {
+    if (score >= 75) return const Color(0xFF66CC33); 
+    if (score >= 50) return const Color(0xFFFFCC33); 
+    return const Color(0xFFFF0000); 
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final l10n = AppLocalizations.of(context);
+    
     if (_games.isEmpty && !_isLoading) {
+      if (widget.parent.isSyncing) return const SizedBox(); 
+      
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.videogame_asset_off, size: 80, color: Colors.grey.shade800),
+              Icon(widget.tipo == 'game' ? Icons.videogame_asset_off : Icons.extension_off, size: 80, color: Colors.grey.shade800),
               const SizedBox(height: 24),
-              Text(
-                l10n.noSignals,
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 20, color: Colors.grey.shade400, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              if (_hasActiveFilters())
-                Text(
-                  l10n.adjustFilters,
-                  style: TextStyle(color: Theme.of(context).colorScheme.primary),
-                )
+              Text(l10n?.noSignals ?? "No hay datos", textAlign: TextAlign.center, style: TextStyle(fontSize: 20, color: Colors.grey.shade400, fontWeight: FontWeight.bold)),
             ],
           ),
         ),
@@ -742,29 +865,7 @@ class _HomePageState extends State<HomePage> {
 
     return Column(
       children: [
-        if (_hasActiveFilters())
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  Text('${l10n.activeFilters} ', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
-                  if (_selectedVoiceLanguage != 'Cualquiera')
-                    _buildFilterChip('${l10n.filterVoice}: $_selectedVoiceLanguage'),
-                  if (_selectedTextLanguage != 'Cualquiera')
-                    _buildFilterChip('${l10n.filterText}: $_selectedTextLanguage'),
-                  if (_selectedGenre != 'Cualquiera')
-                    _buildFilterChip('${l10n.filterGenre}: $_selectedGenre'),
-                  if (_selectedPlatform != 'Cualquiera')
-                    _buildFilterChip('${l10n.filterPlatform}: $_selectedPlatform'),
-                  if (_selectedYear != 'Cualquiera')
-                    _buildFilterChip('${l10n.filterYear}: $_selectedYear'),
-                ],
-              ),
-            ),
-          ),
+        _buildActiveFiltersRow(context), // NUEVO WIDGET DE FILTROS ACTIVOS
         Expanded(
           child: ListView.builder(
             controller: _scrollController,
@@ -774,9 +875,7 @@ class _HomePageState extends State<HomePage> {
               if (index == _games.length) {
                 return _buildShimmerLoading(rows: 1);
               }
-
-              final game = _games[index];
-              return _buildGameCard(game);
+              return _buildGameCard(context, _games[index]);
             },
           ),
         ),
@@ -784,132 +883,53 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildGameCard(SteamGame game) {
+  // NUEVO WIDGET PARA CONSTRUIR LA FILA DE FILTROS ACTIVOS
+  Widget _buildActiveFiltersRow(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final parent = widget.parent;
+    final activeFilters = <Widget>[];
+
+    void addFilterChip(String label, String filterType) {
+      activeFilters.add(_buildDismissibleFilterChip(
+        context,
+        label,
+        () => parent.removeFilter(filterType),
+      ));
+    }
+
+    if (parent.selectedSort != 'date') addFilterChip('Orden: ${parent.selectedSort == 'score' ? 'Mejor valorados' : 'Fecha'}', 'sort');
+    if (parent.selectedPlatform != 'Cualquiera') addFilterChip('Plataforma: ${parent.selectedPlatform}', 'platform');
+    if (parent.selectedGenre != 'Cualquiera') addFilterChip('${l10n.filterGenre}: ${parent.selectedGenre}', 'genre');
+    if (parent.selectedYear != 'Cualquiera') addFilterChip('${l10n.filterYear}: ${parent.selectedYear}', 'year');
+    if (parent.selectedVoiceLanguage != 'Cualquiera') addFilterChip('${l10n.filterVoice}: ${parent.selectedVoiceLanguage}', 'voice');
+    if (parent.selectedTextLanguage != 'Cualquiera') addFilterChip('${l10n.filterText}: ${parent.selectedTextLanguage}', 'text');
+    
+    if (activeFilters.isEmpty) return const SizedBox.shrink();
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ]
-      ),
-      child: Card(
-        margin: EdgeInsets.zero,
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => GameDetailPage(game: game)),
-            );
-          },
-          child: Row(
-            children: [
-              SizedBox(
-                width: 120,
-                height: 100, // Aumentado ligeramente para caber más info
-                child: game.imgPrincipal.isNotEmpty
-                    ? Image.network(
-                        game.imgPrincipal,
-                        fit: BoxFit.cover,
-                        cacheWidth: 240,
-                        errorBuilder: (context, error, stackTrace) =>
-                            Container(color: const Color(0xFF1E232F), child: const Icon(Icons.broken_image, color: Colors.grey)),
-                      )
-                    : Container(color: const Color(0xFF1E232F), child: const Icon(Icons.videogame_asset, color: Colors.grey)),
-              ),
-              
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        game.titulo,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: Colors.white
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Icon(Icons.calendar_today, size: 12, color: Colors.grey.shade400),
-                          const SizedBox(width: 4),
-                          Text(
-                            game.fechaLanzamiento.isNotEmpty ? game.fechaLanzamiento.substring(0, 4) : 'N/A',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
-                          ),
-                          const SizedBox(width: 12),
-                          if (game.metacritic != null) ...[
-                            Icon(Icons.star, size: 12, color: Theme.of(context).colorScheme.primary),
-                            const SizedBox(width: 4),
-                            Text(
-                              game.metacritic.toString(),
-                              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold),
-                            ),
-                          ]
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Icon(Icons.gamepad, size: 12, color: Colors.grey.shade500),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              game.plataformas.isNotEmpty ? game.plataformas.join(', ') : 'N/A',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.only(right: 12.0),
-                child: Icon(Icons.chevron_right, color: Colors.grey),
-              )
-            ],
-          ),
-        ),
+      height: 50,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: activeFilters),
       ),
     );
   }
-  
-  Widget _buildFilterChip(String label) {
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Theme.of(context).colorScheme.primary.withOpacity(0.8),
-            Theme.of(context).colorScheme.secondary.withOpacity(0.6),
-          ]
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.4),
-            blurRadius: 6,
-          )
-        ]
+
+  // NUEVO WIDGET PARA CREAR UN CHIP DE FILTRO INDIVIDUAL Y ELIMINABLE
+  Widget _buildDismissibleFilterChip(BuildContext context, String label, VoidCallback onDeleted) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8.0),
+      child: Chip(
+        label: Text(label),
+        onDeleted: onDeleted,
+        deleteIcon: const Icon(Icons.close, size: 16),
+        backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+        labelStyle: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 12, fontWeight: FontWeight.bold),
+        side: BorderSide(color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
+        deleteIconColor: Theme.of(context).colorScheme.primary.withOpacity(0.7),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
       ),
-      child: Text(label, style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
     );
   }
 
@@ -923,28 +943,129 @@ class _HomePageState extends State<HomePage> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 120,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16)
-                ),
-              ),
+              Container(width: 120, height: 80, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16))),
               const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(width: double.infinity, height: 16, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
-                    const SizedBox(height: 8),
-                    Container(width: 100, height: 12, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
-                  ],
-                ),
-              )
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Container(width: double.infinity, height: 16, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
+                  const SizedBox(height: 8),
+                  Container(width: 100, height: 12, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4))),
+              ]))
             ],
           ),
         )),
+      ),
+    );
+  }
+
+  Widget _buildGameCard(BuildContext context, Game game) {
+    Color scoreColor = Colors.grey;
+    if (game.metacritic != null) {
+      scoreColor = _getScoreColor(game.metacritic!);
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E232F),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))]
+      ),
+      child: Card(
+        color: Colors.transparent,
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () {
+            Navigator.push(context, MaterialPageRoute(builder: (context) => GameDetailPage(game: game)));
+          },
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 140, 
+                height: 90, 
+                child: Hero( // WRAP CON HERO AQUÍ
+                  tag: 'game_img_${game.slug}', // MISMO TAG QUE EN DETALLE
+                  child: game.imgPrincipal.isNotEmpty
+                      ? Image.network(
+                          game.imgPrincipal,
+                          fit: BoxFit.cover,
+                          cacheWidth: 300,
+                          errorBuilder: (context, error, stackTrace) => Container(color: const Color(0xFF151921), child: const Icon(Icons.broken_image, color: Colors.grey)),
+                        )
+                      : Container(color: const Color(0xFF151921), child: const Icon(Icons.videogame_asset, color: Colors.grey)),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        game.titulo,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white, height: 1.1),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(Icons.calendar_today, size: 12, color: Colors.grey.shade400),
+                          const SizedBox(width: 4),
+                          Text(
+                            game.fechaLanzamiento.isNotEmpty ? game.fechaLanzamiento.substring(0, 4) : 'N/A',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                          ),
+                          const Spacer(),
+                          if (game.metacritic != null)
+                             Container(
+                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                               decoration: BoxDecoration(
+                                 color: scoreColor.withOpacity(0.15),
+                                 borderRadius: BorderRadius.circular(6),
+                                 border: Border.all(color: scoreColor.withOpacity(0.5), width: 1)
+                               ),
+                               child: Row(
+                                 mainAxisSize: MainAxisSize.min,
+                                 children: [
+                                   Icon(Icons.star, size: 10, color: scoreColor),
+                                   const SizedBox(width: 4),
+                                   Text(
+                                      game.metacritic.toString(),
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: scoreColor),
+                                    ),
+                                 ],
+                               ),
+                             ),
+                        ],
+                      ),
+                      if (game.plataformas.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(Icons.gamepad, size: 12, color: Colors.grey.shade600),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                game.plataformas.take(3).join(', '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ]
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

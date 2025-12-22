@@ -1,13 +1,14 @@
-// lib/models/steam_game.dart
+// lib/models/game.dart
 
-class SteamGame {
+class Game {
   final String slug;
   final String titulo;
+  final String tipo; // Nuevo campo: "game" o "dlc"
   final String descripcionCorta;
   final String fechaLanzamiento;
   final String? storage;
   final List<String> generos;
-  final List<String> plataformas; // Nuevo campo
+  final List<String> plataformas;
   final String imgPrincipal;
   final List<String> galeria;
   final Idiomas idiomas;
@@ -18,9 +19,10 @@ class SteamGame {
   late final String cleanTitle;
   late final int releaseDateTs;
 
-  SteamGame({
+  Game({
     required this.slug,
     required this.titulo,
+    required this.tipo,
     required this.descripcionCorta,
     required this.fechaLanzamiento,
     this.storage,
@@ -36,15 +38,16 @@ class SteamGame {
     releaseDateTs = _parseDate(fechaLanzamiento);
   }
 
-  factory SteamGame.fromJson(Map<String, dynamic> json) {
-    return SteamGame(
+  factory Game.fromJson(Map<String, dynamic> json) {
+    return Game(
       slug: json['slug'] ?? '',
       titulo: json['titulo'] ?? 'Sin título',
-      descripcionCorta: json['descripcion_corta'] ?? '',
+      tipo: json['tipo'] ?? 'game', // Valor por defecto
+      descripcionCorta: _cleanDescription(json['descripcion_corta']),
       fechaLanzamiento: json['fecha_lanzamiento'] ?? '',
       storage: json['storage'],
       generos: List<String>.from(json['generos'] ?? []),
-      plataformas: List<String>.from(json['plataformas'] ?? []), // Parseo
+      plataformas: List<String>.from(json['plataformas'] ?? []), 
       imgPrincipal: json['img_principal'] ?? '',
       galeria: List<String>.from(json['galeria'] ?? []),
       idiomas: Idiomas.fromJson(json['idiomas'] ?? {}),
@@ -54,6 +57,27 @@ class SteamGame {
               .toList() ??
           [],
     );
+  }
+
+  static String _cleanDescription(String? text) {
+    if (text == null || text.isEmpty) return '';
+    
+    // 1. Reemplazar escapes literales comunes de JSON
+    String clean = text;
+    
+    // Reemplazar "\\n" (literal) por "\n" (control)
+    clean = clean.replaceAll(r'\n', '\n');
+    
+    // Reemplazar "\\r" por nada
+    clean = clean.replaceAll(r'\r', ''); 
+    
+    // Reemplazar "\\t" por tabulación
+    clean = clean.replaceAll(r'\t', '\t');
+
+    // Reemplazar comillas escapadas \"
+    clean = clean.replaceAll(r'\"', '"');
+
+    return clean;
   }
 
   static String normalize(String input) {

@@ -1,12 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:archive/archive.dart';
-import '../models/steam_game.dart';
+import 'package:path_provider/path_provider.dart';
+import '../models/game.dart';
 import 'database_helper.dart';
 
 class SyncResult {
-  final List<SteamGame> games;
+  final List<Game> games;
   final List<String> genres;
   final List<String> voices;
   final List<String> texts;
@@ -18,11 +20,18 @@ class SyncResult {
 
 class DataService {
   static const String _dataUrl = 'https://raw.githubusercontent.com/andymartin1991/SteamDataScraper/main/global_games.json.gz';
+  static const String _localFileName = 'games_cache.json.gz';
 
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
   
-  List<SteamGame> _webCache = [];
+  List<Game> _webCache = [];
   Map<String, List<String>> _webFilters = {};
+
+  // Método público para contar juegos
+  Future<int> countLocalGames() async {
+    if (kIsWeb) return _webCache.length;
+    return await _dbHelper.countGames();
+  }
 
   Future<bool> needsUpdate() async {
     if (kIsWeb) {
@@ -50,45 +59,115 @@ class DataService {
     }
   }
 
-  Future<void> syncGames() async {
+  // NUEVO MÉTODO PASARELA
+  Future<List<String>> getTopPlatforms(int limit) async {
+    if (kIsWeb) return []; // Implementar lógica web si fuera necesario
+    return await _dbHelper.getTopPlatformsRecent(limit);
+  }
+
+  Future<void> syncGames({Function(double progress)? onProgress, bool forceDownload = true}) async {
     try {
-      debugPrint('Iniciando descarga de juegos comprimidos (${kIsWeb ? "Web Mode" : "Native Mode"})...');
-      final uri = Uri.parse('$_dataUrl?t=${DateTime.now().millisecondsSinceEpoch}');
-      final response = await http.get(uri);
-
-      if (response.statusCode == 200) {
-        debugPrint('Descarga completada. Tamaño comprimido: ${(response.bodyBytes.length / 1024).toStringAsFixed(2)} KB.');
-        
-        if (response.bodyBytes.isEmpty) throw Exception('El archivo descargado está vacío.');
-
-        final SyncResult result = await compute(_decompressAndParse, response.bodyBytes);
-        
-        if (kIsWeb) {
-          debugPrint('Guardando ${result.games.length} juegos en memoria RAM (Web)...');
-          result.games.sort((a, b) => b.releaseDateTs.compareTo(a.releaseDateTs));
-          _webCache = result.games;
-          _webFilters = {
-            'genres': result.genres,
-            'voices': result.voices,
-            'texts': result.texts,
-            'years': result.years,
-            'platforms': result.platforms,
-          };
-        } else {
-          debugPrint('Insertando ${result.games.length} juegos en SQLite (Nativo)...');
-          await _dbHelper.insertGames(result.games);
-          await _dbHelper.saveMetaFilters(result.genres, result.voices, result.texts, result.years, result.platforms);
-        }
-
-        debugPrint('Sincronización finalizada correctamente.');
+      if (kIsWeb) {
+        await _syncWeb(onProgress);
       } else {
-        throw Exception('Error HTTP al descargar: ${response.statusCode}');
+        // CONDICIÓN DE SEGURIDAD: Si no se fuerza la descarga y la BBDD ya tiene datos,
+        // se asume que no hay nada que hacer. Esto evita reprocesamientos innecesarios.
+        if (!forceDownload) {
+          final gameCount = await _dbHelper.countGames();
+          if (gameCount > 1000) { // Umbral para considerar la BBDD como "válida"
+            debugPrint('Sincronización omitida: La BBDD ya contiene $gameCount juegos.');
+            if (onProgress != null) onProgress(1.0); // Completar barra al 100%
+            return;
+          }
+        }
+        await _syncNative(onProgress, forceDownload);
       }
     } catch (e, stack) {
       debugPrint('Error CRÍTICO en syncGames: $e');
       debugPrintStack(stackTrace: stack);
       rethrow;
     }
+  }
+
+  Future<void> _syncWeb(Function(double progress)? onProgress) async {
+    final uri = Uri.parse('$_dataUrl?t=${DateTime.now().millisecondsSinceEpoch}');
+    final response = await http.get(uri);
+    if (response.statusCode == 200) {
+      if (onProgress != null) onProgress(0.1);
+      final SyncResult result = await compute(_decompressAndParse, response.bodyBytes);
+      if (onProgress != null) onProgress(0.2);
+      
+      _webCache = result.games;
+      _webFilters = {
+        'genres': result.genres,
+        'voices': result.voices,
+        'texts': result.texts,
+        'years': result.years,
+        'platforms': result.platforms,
+      };
+      if (onProgress != null) onProgress(1.0);
+    }
+  }
+
+  Future<void> _syncNative(Function(double progress)? onProgress, bool forceDownload) async {
+    final directory = await getApplicationDocumentsDirectory();
+    final filePath = '${directory.path}/$_localFileName';
+    final file = File(filePath);
+
+    bool fileExists = await file.exists();
+    
+    // Si forzamos descarga O el archivo no existe, descargamos.
+    if (forceDownload || !fileExists) {
+        debugPrint('Iniciando descarga a archivo: $filePath');
+        if (onProgress != null) onProgress(0.01);
+
+        final request = http.Request('GET', Uri.parse('$_dataUrl?t=${DateTime.now().millisecondsSinceEpoch}'));
+        final response = await http.Client().send(request);
+        
+        if (response.statusCode != 200) throw Exception('Error descarga: ${response.statusCode}');
+
+        final totalBytes = response.contentLength ?? 0;
+        int receivedBytes = 0;
+
+        final sink = file.openWrite();
+        await response.stream.forEach((chunk) {
+          sink.add(chunk);
+          receivedBytes += chunk.length;
+          
+          if (onProgress != null) {
+            if (totalBytes > 0) {
+               onProgress((receivedBytes / totalBytes) * 0.2);
+            } else {
+               // Si no sabemos el total, mostramos progreso ficticio o oscilante entre 0 y 0.2
+               // Usamos modulo para que se mueva algo
+               double fakeProgress = 0.05 + ((receivedBytes % 1000000) / 1000000) * 0.1;
+               onProgress(fakeProgress);
+            }
+          }
+        });
+        await sink.flush();
+        await sink.close();
+        debugPrint('Descarga completada en disco.');
+    } else {
+        debugPrint('Archivo local encontrado. Saltando descarga.');
+        if (onProgress != null) onProgress(0.2); 
+    }
+
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) throw Exception("El archivo cacheado está vacío.");
+
+    final SyncResult result = await compute(_decompressAndParse, bytes);
+    
+    debugPrint('Insertando ${result.games.length} juegos en SQLite...');
+    
+    await _dbHelper.insertGames(result.games, onProgress: (dbProgress) {
+      if (onProgress != null) {
+        final totalProgress = 0.2 + (dbProgress * 0.8);
+        onProgress(totalProgress);
+      }
+    });
+    
+    await _dbHelper.saveMetaFilters(result.genres, result.voices, result.texts, result.years, result.platforms);
   }
   
   static SyncResult _decompressAndParse(Uint8List compressedBytes) {
@@ -97,11 +176,11 @@ class DataService {
       final String jsonString = utf8.decode(decompressedBytes);
       final decoded = json.decode(jsonString);
       
-      List<SteamGame> games = [];
+      List<Game> games = [];
       if (decoded is List) {
-        games = decoded.map<SteamGame>((json) => SteamGame.fromJson(json)).toList();
+        games = decoded.map<Game>((json) => Game.fromJson(json)).toList();
       } else if (decoded is Map) {
-        games = [SteamGame.fromJson(decoded as Map<String, dynamic>)];
+        games = [Game.fromJson(decoded as Map<String, dynamic>)];
       } else {
         throw Exception('El JSON no es ni una lista ni un mapa: ${decoded.runtimeType}');
       }
@@ -110,7 +189,7 @@ class DataService {
       final Set<String> voicesSet = {};
       final Set<String> textsSet = {};
       final Set<String> yearsSet = {};
-      final Set<String> platformsSet = {};
+      final Set<String> allPlatformsSet = {};
 
       for (var game in games) {
         for (var g in game.generos) {
@@ -123,7 +202,10 @@ class DataService {
           if (t.isNotEmpty) textsSet.add(t.trim());
         }
         for (var p in game.plataformas) {
-          if (p.isNotEmpty) platformsSet.add(p.trim());
+          final plat = p.trim();
+          if (plat.isNotEmpty) {
+            allPlatformsSet.add(plat);
+          }
         }
         
         if (game.fechaLanzamiento.length >= 4) {
@@ -138,7 +220,7 @@ class DataService {
       final voicesList = voicesSet.toList()..sort();
       final textsList = textsSet.toList()..sort();
       final yearsList = yearsSet.toList()..sort((a, b) => b.compareTo(a));
-      final platformsList = platformsSet.toList()..sort();
+      final platformsList = allPlatformsSet.toList()..sort(); 
 
       return SyncResult(games, genresList, voicesList, textsList, yearsList, platformsList);
 
@@ -148,7 +230,7 @@ class DataService {
     }
   }
 
-  Future<List<SteamGame>> getLocalGames({
+  Future<List<Game>> getLocalGames({
     int limit = 20,
     int offset = 0,
     String? query,
@@ -157,15 +239,21 @@ class DataService {
     String? year,
     String? genre,
     String? platform,
+    String? tipo,
+    String sortBy = 'date',
   }) async {
     if (kIsWeb) {
       var filtered = _webCache;
 
-      if (query != null && query.isNotEmpty) {
-        String cleanQuery = SteamGame.normalize(query);
-        filtered = filtered.where((g) => g.cleanTitle.contains(cleanQuery)).toList();
+      if (tipo != null) {
+        filtered = filtered.where((g) => g.tipo == tipo).toList();
       }
 
+      if (query != null && query.isNotEmpty) {
+        String cleanQuery = Game.normalize(query);
+        filtered = filtered.where((g) => g.cleanTitle.contains(cleanQuery)).toList();
+      }
+      
       if (voiceLanguage != null && voiceLanguage != 'Cualquiera') {
         filtered = filtered.where((g) => g.idiomas.voces.contains(voiceLanguage)).toList();
       }
@@ -186,11 +274,14 @@ class DataService {
         filtered = filtered.where((g) => g.plataformas.contains(platform)).toList();
       }
 
-      if (offset >= filtered.length) return [];
+      if (sortBy == 'score') {
+        filtered.sort((a, b) => (b.metacritic ?? 0).compareTo(a.metacritic ?? 0));
+      } else {
+        filtered.sort((a, b) => b.releaseDateTs.compareTo(a.releaseDateTs));
+      }
 
-      final end = (offset + limit < filtered.length)
-          ? offset + limit
-          : filtered.length;
+      if (offset >= filtered.length) return [];
+      final end = (offset + limit < filtered.length) ? offset + limit : filtered.length;
       return filtered.sublist(offset, end);
 
     } else {
@@ -203,6 +294,8 @@ class DataService {
           year: year,
           genre: genre,
           platform: platform,
+          tipo: tipo,
+          sortBy: sortBy,
         );
     }
   }

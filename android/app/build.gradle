@@ -12,6 +12,9 @@ android {
     ndkVersion = "27.0.12077973"
 
     compileOptions {
+        // Habilitar desugaring para soporte de Java 8+ en notificaciones
+        coreLibraryDesugaringEnabled true
+        
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
@@ -29,6 +32,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        
+        // Habilitar multidex si es necesario (buena práctica al añadir librerías grandes)
+        multiDexEnabled true 
     }
 
     buildTypes {
@@ -42,4 +48,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Librería necesaria para el desugaring de Java 8 (requerido por flutter_local_notifications)
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.3'
 }

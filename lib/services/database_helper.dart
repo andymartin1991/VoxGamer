@@ -28,7 +28,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 6, 
+      version: 7, // INCREMENTADO A VERSIÓN 7
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -57,6 +57,18 @@ class DatabaseHelper {
     )
     ''');
     
+    // TABLA PARA PRÓXIMOS LANZAMIENTOS (Preparada)
+    await db.execute('''
+    CREATE TABLE upcoming_games (
+      slug TEXT PRIMARY KEY,
+      titulo TEXT NOT NULL,
+      fecha_lanzamiento TEXT,
+      img_principal TEXT,
+      tiendas TEXT,
+      releaseDateTs INTEGER
+    )
+    ''');
+
     await db.execute('''
     CREATE TABLE meta_filters (
       type TEXT NOT NULL,
@@ -75,7 +87,10 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX IF NOT EXISTS idx_cleanTitle ON games(cleanTitle)');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_releaseDateTs ON games(releaseDateTs)');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_tipo ON games(tipo)'); 
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_metacritic ON games(metacritic)'); 
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_metacritic ON games(metacritic)');
+    
+    // Índice para Upcoming
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_upcoming_date ON upcoming_games(releaseDateTs)'); 
   }
 
   Future<void> _dropIndices(DatabaseExecutor db) async {
@@ -100,8 +115,23 @@ class DatabaseHelper {
       try {
          await db.execute("INSERT OR IGNORE INTO platforms_list (name) SELECT value FROM meta_filters WHERE type = 'platform'");
       } catch (e) {
-         debugPrint("Error migrando plataformas en upgrade: $e");
+         debugPrint("Error migrando plataformas en upgrade v6: $e");
       }
+    }
+
+    if (oldVersion < 7) {
+       debugPrint("Upgrading DB to v7: Creating upcoming_games table...");
+       await db.execute('''
+        CREATE TABLE IF NOT EXISTS upcoming_games (
+          slug TEXT PRIMARY KEY,
+          titulo TEXT NOT NULL,
+          fecha_lanzamiento TEXT,
+          img_principal TEXT,
+          tiendas TEXT,
+          releaseDateTs INTEGER
+        )
+       ''');
+       await db.execute('CREATE INDEX IF NOT EXISTS idx_upcoming_date ON upcoming_games(releaseDateTs)'); 
     }
   }
 
@@ -109,6 +139,7 @@ class DatabaseHelper {
     if (kIsWeb) return;
     final db = await database;
     await db.delete('games');
+    await db.delete('upcoming_games'); // Limpiar upcoming
     await db.delete('meta_filters');
     await db.delete('platforms_list'); 
     debugPrint('Base de datos limpiada.');
@@ -274,7 +305,6 @@ class DatabaseHelper {
           }
           
           offset += batchSize;
-          // Pequeño delay para no congelar UI si corre en main isolate, y dejar GC actuar
           await Future.delayed(const Duration(milliseconds: 5)); 
       }
       
@@ -325,7 +355,6 @@ class DatabaseHelper {
       int offset = 0;
       bool hasMore = true;
 
-      // PROCESAMIENTO POR LOTES PARA 1M RECORDS
       while (hasMore) {
         final List<Map<String, dynamic>> result = await db.query(
           'games',
@@ -355,12 +384,11 @@ class DatabaseHelper {
         await Future.delayed(const Duration(milliseconds: 2));
       }
 
-      // Si no hay recientes, fallback a general (también batched)
       if (counts.isEmpty) {
         final List<Map<String, dynamic>> fallbackResult = await db.query(
            'games',
            columns: ['plataformas'],
-           limit: 5000 // Limitamos fallback a 5k para rapidez visual
+           limit: 5000 
         );
         for (var row in fallbackResult) {
           try {
@@ -393,7 +421,6 @@ class DatabaseHelper {
 
     debugPrint('Iniciando inserción v4 con TurboMode dinámico...');
 
-    // OPTIMIZACIÓN 1M: Borrar índices antes de inserción masiva
     debugPrint('Desactivando índices temporalmente para velocidad máxima...');
     await _dropIndices(db);
 
@@ -439,7 +466,6 @@ class DatabaseHelper {
       else await Future.delayed(const Duration(milliseconds: 30));
     }
 
-    // OPTIMIZACIÓN 1M: Recrear índices al finalizar
     debugPrint('Reconstruyendo índices...');
     await _createIndices(db);
     

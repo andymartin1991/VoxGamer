@@ -20,6 +20,9 @@ class SyncResult {
 
 class DataService {
   static const String _dataUrl = 'https://raw.githubusercontent.com/andymartin1991/SteamDataScraper/main/global_games.json.gz';
+  // NUEVA URL (Placeholder para cuando tengas el JSON de Próximos Lanzamientos)
+  static const String _upcomingDataUrl = 'https://raw.githubusercontent.com/andymartin1991/SteamDataScraper/main/upcoming_games.json.gz';
+  
   static const String _localFileName = 'games_cache.json.gz';
 
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
@@ -164,6 +167,19 @@ class DataService {
     
     // GUARDAR FILTROS (Incluyendo lógica dedicada)
     await _dbHelper.saveMetaFilters(result.genres, result.voices, result.texts, result.years, result.platforms);
+    
+    // -------------------------------------------------------------
+    // AQUÍ IRÍA LA LLAMADA FUTURA A _syncUpcoming()
+    // -------------------------------------------------------------
+    // await _syncUpcoming(onProgress); 
+  }
+
+  // MÉTODO SKELETON PARA FUTURA IMPLEMENTACIÓN
+  Future<void> _syncUpcoming(Function(double progress)? onProgress) async {
+     debugPrint("Sincronizando próximos lanzamientos...");
+     // 1. Descargar _upcomingDataUrl
+     // 2. Descomprimir
+     // 3. Insertar en tabla 'upcoming_games' (que deberás crear en DatabaseHelper)
   }
   
   static SyncResult _decompressAndParse(Uint8List compressedBytes) {

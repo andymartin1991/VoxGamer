@@ -177,7 +177,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     super.initState();
     WidgetsBinding.instance.addObserver(this); 
     _requestNotificationPermissions(); 
-    // _checkAndLoadInitialData() MOVIDO A didChangeDependencies
     _searchController.addListener(_onSearchChanged);
   }
   
@@ -655,7 +654,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     final l10n = AppLocalizations.of(context);
     
     return DefaultTabController(
-      length: 2,
+      length: 3, 
       child: Scaffold(
         appBar: AppBar(
           title: Row(
@@ -718,9 +717,12 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                     ),
                   ),
                 TabBar(
+                  isScrollable: true, 
+                  tabAlignment: TabAlignment.center, // CAMBIADO A CENTER
                   tabs: [
                     Tab(text: l10n?.tabGames ?? "JUEGOS", icon: const Icon(Icons.sports_esports)),
                     Tab(text: l10n?.tabDlcs ?? "DLCs", icon: const Icon(Icons.extension)),
+                    Tab(text: "PRÓXIMAMENTE", icon: const Icon(Icons.rocket_launch)), 
                   ],
                 ),
               ],
@@ -743,12 +745,45 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                   dataService: _dataService,
                   parent: this,
                 ),
+                // PLACEHOLDER PARA PRÓXIMAMENTE
+                const UpcomingGamesPlaceholder(),
               ],
             ),
             if (_isSyncing)
                MinigameOverlay(progress: _syncProgress),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// Widget Placeholder para Próximos Lanzamientos
+class UpcomingGamesPlaceholder extends StatelessWidget {
+  const UpcomingGamesPlaceholder({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.rocket_launch, size: 80, color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
+          const SizedBox(height: 24),
+          const Text(
+            "Próximos Lanzamientos",
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Text(
+              "Estamos preparando el motor de ignición.\nPronto verás aquí los estrenos más esperados.",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade400, height: 1.5),
+            ),
+          ),
+        ],
       ),
     );
   }

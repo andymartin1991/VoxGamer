@@ -61,7 +61,7 @@ class DataService {
 
   // NUEVO MÉTODO PASARELA
   Future<List<String>> getTopPlatforms(int limit) async {
-    if (kIsWeb) return []; // Implementar lógica web si fuera necesario
+    if (kIsWeb) return []; 
     return await _dbHelper.getTopPlatformsRecent(limit);
   }
 
@@ -70,13 +70,11 @@ class DataService {
       if (kIsWeb) {
         await _syncWeb(onProgress);
       } else {
-        // CONDICIÓN DE SEGURIDAD: Si no se fuerza la descarga y la BBDD ya tiene datos,
-        // se asume que no hay nada que hacer. Esto evita reprocesamientos innecesarios.
         if (!forceDownload) {
           final gameCount = await _dbHelper.countGames();
-          if (gameCount > 1000) { // Umbral para considerar la BBDD como "válida"
+          if (gameCount > 1000) { 
             debugPrint('Sincronización omitida: La BBDD ya contiene $gameCount juegos.');
-            if (onProgress != null) onProgress(1.0); // Completar barra al 100%
+            if (onProgress != null) onProgress(1.0); 
             return;
           }
         }
@@ -116,7 +114,6 @@ class DataService {
 
     bool fileExists = await file.exists();
     
-    // Si forzamos descarga O el archivo no existe, descargamos.
     if (forceDownload || !fileExists) {
         debugPrint('Iniciando descarga a archivo: $filePath');
         if (onProgress != null) onProgress(0.01);
@@ -138,8 +135,6 @@ class DataService {
             if (totalBytes > 0) {
                onProgress((receivedBytes / totalBytes) * 0.2);
             } else {
-               // Si no sabemos el total, mostramos progreso ficticio o oscilante entre 0 y 0.2
-               // Usamos modulo para que se mueva algo
                double fakeProgress = 0.05 + ((receivedBytes % 1000000) / 1000000) * 0.1;
                onProgress(fakeProgress);
             }
@@ -167,6 +162,7 @@ class DataService {
       }
     });
     
+    // GUARDAR FILTROS (Incluyendo lógica dedicada)
     await _dbHelper.saveMetaFilters(result.genres, result.voices, result.texts, result.years, result.platforms);
   }
   

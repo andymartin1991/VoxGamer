@@ -140,6 +140,9 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   bool _isSyncing = false;
   double _syncProgress = 0.0;
   String _statusMessage = '';
+  
+  // Flag para evitar doble carga inicial
+  bool _isInitDataLoaded = false;
 
   // Control de suscripciones
   StreamSubscription? _progressSub;
@@ -174,8 +177,17 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     super.initState();
     WidgetsBinding.instance.addObserver(this); 
     _requestNotificationPermissions(); 
-    _checkAndLoadInitialData(); // Punto crítico de inicio
+    // _checkAndLoadInitialData() MOVIDO A didChangeDependencies
     _searchController.addListener(_onSearchChanged);
+  }
+  
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_isInitDataLoaded) {
+      _isInitDataLoaded = true;
+      _checkAndLoadInitialData();
+    }
   }
 
   void _setupServiceListeners() {
@@ -325,6 +337,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
 
   // --- LÓGICA DE INICIO ROBUSTA ---
   Future<void> _checkAndLoadInitialData() async {
+      // Ahora es seguro usar context porque estamos llamados desde didChangeDependencies
       final l10n = AppLocalizations.of(context)!;
       final dbHasData = (await _dataService.countLocalGames()) > 0;
 
@@ -355,9 +368,11 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       if (interrupted) {
           // Si se interrumpió, intenta usar el archivo .json.gz ya descargado.
           debugPrint("BBDD vacía pero la sincronización fue interrumpida. Reintentando desde archivo local.");
-          ScaffoldMessenger.of(context).showSnackBar(
-             SnackBar(content: Text(l10n.msgSyncInterrupted), duration: const Duration(seconds: 4)),
-           );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+               SnackBar(content: Text(l10n.msgSyncInterrupted), duration: const Duration(seconds: 4)),
+            );
+          }
           _updateCatalog(force: true, forceDownload: false);
       } else {
           // Si no, es una instalación 100% limpia. Descarga y procesa.

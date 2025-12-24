@@ -11,17 +11,19 @@ VoxGamer es una aplicación Flutter de alto rendimiento diseñada para explorar 
 ### 🚀 Arquitectura y Rendimiento
 *   **Offline-First Real:** Descarga, comprime y almacena localmente todo el catálogo. Una vez sincronizado, no necesitas internet para buscar o filtrar.
 *   **Sincronización en Segundo Plano:** Utiliza `flutter_background_service` para gestionar la descarga y procesamiento masivo de datos sin interrupciones, incluso si minimizas la app. Mantiene al usuario informado mediante notificaciones de progreso.
+*   **Recuperación Inteligente:** Si la sincronización inicial se interrumpe (ej. cierre forzoso), la app detecta el estado incompleto y es capaz de reanudar el procesamiento utilizando el archivo comprimido ya descargado, ahorrando datos y tiempo.
 *   **Compresión GZIP & Isolates:** El catálogo se descarga comprimido (`.json.gz`) y se procesa en hilos secundarios (Isolates) para evitar congelamientos en la UI.
 *   **Base de Datos Híbrida:**
     *   **Móvil (Android/iOS):** Motor SQLite (`sqflite`) altamente optimizado con inserción por lotes (chunks), índices estratégicos y modo turbo para manejar +75k registros.
     *   **Web:** Sistema de caché en memoria RAM optimizado para un filtrado instantáneo en navegadores.
 
 ### 🔍 Exploración Avanzada
-*   **Buscador Inteligente:** Búsqueda instantánea por título con normalización de caracteres.
+*   **Buscador Inteligente:** Búsqueda instantánea por título con normalización de caracteres y "debounce" para optimizar consultas.
 *   **Filtrado Profundo:**
     *   **Idiomas:** Distingue entre **Voces** y **Textos** disponibles.
     *   **Plataformas:** Identifica juegos compatibles con Windows, Mac, Linux, y más.
     *   **Metadatos:** Filtra por Año de lanzamiento y Género.
+*   **Gestión Rápida de Filtros:** Visualización de filtros activos mediante *Chips* eliminables directamente desde la lista, permitiendo refinar la búsqueda rápidamente sin reabrir el panel de configuración.
 *   **Ordenación:** Ordena los resultados por **Fecha de Lanzamiento** o **Puntuación Metacritic**.
 *   **Categorización:** Pestañas dedicadas para **Juegos** y **DLCs**.
 
@@ -156,6 +158,7 @@ El archivo resultante `global_games.json.gz` sigue este contrato:
     Toca el botón de ajustes (icono de ecualizador) para abrir el panel de filtros.
     *   Combina múltiples criterios (ej: "RPG" + "Español (Voces)" + "Mejor Valorados").
     *   Usa los buscadores internos de los desplegables para encontrar opciones rápidamente.
+    *   **Tip:** Los filtros activos aparecerán como etiquetas (chips) sobre la lista. Puedes tocarlos para eliminarlos individualmente.
 
 4.  **Actualización:**
     Si deseas refrescar el catálogo manualmente, usa el menú de tres puntos en la esquina superior derecha y selecciona la opción de actualizar.
@@ -165,7 +168,7 @@ El archivo resultante `global_games.json.gz` sigue este contrato:
 ## ⚠️ Solución de Problemas
 
 *   **La sincronización se detiene:**
-    Gracias a `flutter_background_service` y `wakelock_plus`, esto es inusual. Sin embargo, en algunos fabricantes de Android con gestión de batería agresiva, asegúrate de no "matar" la app desde la multitarea durante la *primera* instalación masiva.
+    Gracias a `flutter_background_service` y `wakelock_plus`, esto es inusual. Sin embargo, en algunos fabricantes de Android con gestión de batería agresiva, asegúrate de no "matar" la app desde la multitarea durante la *primera* instalación masiva. Si sucede, vuelve a abrir la app; el sistema intentará recuperar el archivo descargado para no empezar de cero.
 *   **Base de datos corrupta:**
     Si experimentas cierres inesperados tras una actualización fallida, ve a *Ajustes de Android > Aplicaciones > VoxGamer > Almacenamiento* y borra los datos. La app se reiniciará limpia.
 

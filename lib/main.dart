@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:async';
 import 'dart:io'; 
+import 'dart:ui'; // Necesario para ImageFilter
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -31,10 +32,24 @@ void main() async {
     android: initializationSettingsAndroid,
     iOS: initializationSettingsDarwin,
   );
+  
+  // Inicialización de notificaciones
   await flutterLocalNotificationsPlugin.initialize(initializationSettings);
 
   if (!kIsWeb) {
-    await initializeBackgroundService();
+    try {
+      // Intentamos inicializar el servicio con un timeout para evitar que la app se quede pegada en el logo
+      // si el servicio tiene problemas al arrancar (común tras reinstalaciones o hot-restarts).
+      await initializeBackgroundService().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {
+          debugPrint("⚠️ Advertencia: initializeBackgroundService tardó demasiado. Continuando carga de UI...");
+          return;
+        },
+      );
+    } catch (e) {
+      debugPrint("❌ Error inicializando background service: $e");
+    }
   }
 
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -87,7 +102,7 @@ class VoxGamerApp extends StatelessWidget {
           displayColor: Colors.white,
         ),
         appBarTheme: const AppBarTheme(
-          backgroundColor: bgDark,
+          backgroundColor: bgDark, // Se mantendrá transparente en HomePage por configuración local
           elevation: 0,
           centerTitle: true,
           titleTextStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
@@ -653,10 +668,21 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     
+    // CALCULAR EL PADDING SUPERIOR EXACTO
+    final double topPadding = MediaQuery.of(context).padding.top + kToolbarHeight + 120;
+    
     return DefaultTabController(
       length: 3, 
       child: Scaffold(
+        extendBodyBehindAppBar: true, 
         appBar: AppBar(
+          backgroundColor: const Color(0xFF0A0E14).withOpacity(0.85), 
+          flexibleSpace: ClipRRect(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10), 
+              child: Container(color: Colors.transparent),
+            ),
+          ),
           title: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -718,11 +744,12 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                   ),
                 TabBar(
                   isScrollable: true, 
-                  tabAlignment: TabAlignment.center, // CAMBIADO A CENTER
+                  tabAlignment: TabAlignment.center, 
                   tabs: [
                     Tab(text: l10n?.tabGames ?? "JUEGOS", icon: const Icon(Icons.sports_esports)),
                     Tab(text: l10n?.tabDlcs ?? "DLCs", icon: const Icon(Icons.extension)),
-                    Tab(text: "PRÓXIMAMENTE", icon: const Icon(Icons.rocket_launch)), 
+                    // CAMBIO A TEXTO MÁS CORTO
+                    Tab(text: "PRÓXIMOS", icon: const Icon(Icons.rocket_launch)), 
                   ],
                 ),
               ],
@@ -731,6 +758,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
         ),
         body: Stack(
           children: [
+            // ELIMINADO EL PADDING DEL PADRE PARA PERMITIR SCROLL UNDER
             TabBarView(
               children: [
                 GameListTab(
@@ -738,15 +766,16 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                   tipo: 'game',
                   dataService: _dataService,
                   parent: this,
+                  topPadding: topPadding, // PASAMOS PADDING
                 ),
                 GameListTab(
                   key: _dlcsTabKey,
                   tipo: 'dlc',
                   dataService: _dataService,
                   parent: this,
+                  topPadding: topPadding, // PASAMOS PADDING
                 ),
-                // PLACEHOLDER PARA PRÓXIMAMENTE
-                const UpcomingGamesPlaceholder(),
+                UpcomingGamesPlaceholder(topPadding: topPadding), // PASAMOS PADDING
               ],
             ),
             if (_isSyncing)
@@ -760,30 +789,34 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
 
 // Widget Placeholder para Próximos Lanzamientos
 class UpcomingGamesPlaceholder extends StatelessWidget {
-  const UpcomingGamesPlaceholder({super.key});
+  final double topPadding; // ACEPTAR PADDING
+  const UpcomingGamesPlaceholder({super.key, this.topPadding = 0});
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.rocket_launch, size: 80, color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
-          const SizedBox(height: 24),
-          const Text(
-            "Próximos Lanzamientos",
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
-          ),
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40),
-            child: Text(
-              "Estamos preparando el motor de ignición.\nPronto verás aquí los estrenos más esperados.",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade400, height: 1.5),
+    return Padding(
+      padding: EdgeInsets.only(top: topPadding), // APLICAR PADDING
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.rocket_launch, size: 80, color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
+            const SizedBox(height: 24),
+            const Text(
+              "Próximos Lanzamientos",
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 40),
+              child: Text(
+                "Estamos preparando el motor de ignición.\nPronto verás aquí los estrenos más esperados.",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade400, height: 1.5),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -794,12 +827,14 @@ class GameListTab extends StatefulWidget {
   final String tipo;
   final DataService dataService;
   final HomePageState parent;
+  final double topPadding; // NUEVO PARÁMETRO
 
   const GameListTab({
     super.key,
     required this.tipo,
     required this.dataService,
     required this.parent,
+    required this.topPadding,
   });
 
   @override
@@ -900,7 +935,7 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
       
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(32.0),
+          padding: EdgeInsets.only(top: widget.topPadding + 32, left: 32, right: 32), // PADDING AJUSTADO
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -915,17 +950,31 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
 
     return Column(
       children: [
-        _buildActiveFiltersRow(context), // NUEVO WIDGET DE FILTROS ACTIVOS
+        // ELIMINADO EL WIDGET DE FILTROS DEL HEADER FIJO Y MOVIDO DENTRO DEL SCROLLVIEW SI ES POSIBLE
+        // O MANTENERLO PERO CON PADDING CORRECTO
+        // _buildActiveFiltersRow ahora debe renderizarse dentro del espacio visible o superpuesto
+        // Para simplificar y mantener el efecto, lo ponemos como primer item del ListView o Stackeado.
+        // Stackeado debajo del Header es complejo porque el header es transparente.
+        // Mejor opción: Primer item de la lista es el filtro activo.
+        
         Expanded(
           child: ListView.builder(
             controller: _scrollController,
-            itemCount: _games.length + (_hasMore ? 1 : 0),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            // AQUÍ ESTÁ LA CLAVE: PADDING INTERNO DEL LISTVIEW
+            padding: EdgeInsets.fromLTRB(12, widget.topPadding + 10, 12, 8),
+            itemCount: _games.length + (_hasMore ? 1 : 0) + (widget.parent.hasActiveFilters() ? 1 : 0),
             itemBuilder: (context, index) {
-              if (index == _games.length) {
+              // Ajuste de índice si hay filtros
+              int gameIndex = index;
+              if (widget.parent.hasActiveFilters()) {
+                if (index == 0) return _buildActiveFiltersRow(context);
+                gameIndex = index - 1;
+              }
+
+              if (gameIndex == _games.length) {
                 return _buildShimmerLoading(rows: 1);
               }
-              return _buildGameCard(context, _games[index]);
+              return _buildGameCard(context, _games[gameIndex]);
             },
           ),
         ),
@@ -933,7 +982,7 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
     );
   }
 
-  // NUEVO WIDGET PARA CONSTRUIR LA FILA DE FILTROS ACTIVOS
+  // WIDGET ADAPTADO PARA NO TENER PADDING FIJO EXCESIVO
   Widget _buildActiveFiltersRow(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final parent = widget.parent;
@@ -954,11 +1003,12 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
     if (parent.selectedVoiceLanguage != 'Cualquiera') addFilterChip('${l10n.filterVoice}: ${parent.selectedVoiceLanguage}', 'voice');
     if (parent.selectedTextLanguage != 'Cualquiera') addFilterChip('${l10n.filterText}: ${parent.selectedTextLanguage}', 'text');
     
+    // Si no hay filtros, devolvemos espacio vacío (aunque el itemCount ya lo maneja)
     if (activeFilters.isEmpty) return const SizedBox.shrink();
 
     return Container(
       height: 50,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      margin: const EdgeInsets.only(bottom: 8), // Margen inferior para separar de la lista
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(children: activeFilters),
@@ -1016,16 +1066,30 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E232F),
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))]
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF232936), // Un poco más claro
+            const Color(0xFF151921), // Color original base
+          ],
+          stops: const [0.0, 1.0],
+        ),
+        border: Border.all(color: Colors.white.withOpacity(0.07), width: 1), // Borde glass sutil
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.4),
+            blurRadius: 12,
+            offset: const Offset(0, 6)
+          ),
+        ]
       ),
-      child: Card(
+      child: Material(
         color: Colors.transparent,
-        elevation: 0,
-        margin: EdgeInsets.zero,
-        clipBehavior: Clip.antiAlias,
+        borderRadius: BorderRadius.circular(16),
         child: InkWell(
+          borderRadius: BorderRadius.circular(16),
           onTap: () {
             Navigator.push(context, MaterialPageRoute(builder: (context) => GameDetailPage(game: game)));
           },
@@ -1035,16 +1099,19 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
               SizedBox(
                 width: 140, 
                 height: 90, 
-                child: Hero( // WRAP CON HERO AQUÍ
-                  tag: 'game_img_${game.slug}', // MISMO TAG QUE EN DETALLE
-                  child: game.imgPrincipal.isNotEmpty
-                      ? Image.network(
-                          game.imgPrincipal,
-                          fit: BoxFit.cover,
-                          cacheWidth: 300,
-                          errorBuilder: (context, error, stackTrace) => Container(color: const Color(0xFF151921), child: const Icon(Icons.broken_image, color: Colors.grey)),
-                        )
-                      : Container(color: const Color(0xFF151921), child: const Icon(Icons.videogame_asset, color: Colors.grey)),
+                child: Hero( 
+                  tag: 'game_img_${game.slug}', 
+                  child: ClipRRect( // Clip necesario por el borde redondeado del container padre
+                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
+                    child: game.imgPrincipal.isNotEmpty
+                        ? Image.network(
+                            game.imgPrincipal,
+                            fit: BoxFit.cover,
+                            cacheWidth: 300,
+                            errorBuilder: (context, error, stackTrace) => Container(color: const Color(0xFF151921), child: const Icon(Icons.broken_image, color: Colors.grey)),
+                          )
+                        : Container(color: const Color(0xFF151921), child: const Icon(Icons.videogame_asset, color: Colors.grey)),
+                  ),
                 ),
               ),
               Expanded(

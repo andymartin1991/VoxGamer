@@ -28,6 +28,26 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            
+            <!-- DEEP LINK GITHUB PAGES: https://andymartin1991.github.io/VoxGamer/game/slug -->
+            <!-- Android buscará assetlinks.json en https://andymartin1991.github.io/.well-known/assetlinks.json -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                
+                <data android:scheme="https" android:host="andymartin1991.github.io" android:pathPrefix="/VoxGamer/game/" />
+                <data android:scheme="http" android:host="andymartin1991.github.io" android:pathPrefix="/VoxGamer/game/" />
+            </intent-filter>
+            
+            <!-- FALLBACK: voxgamer://game/slug -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="voxgamer" android:host="game" />
+            </intent-filter>
+            
         </activity>
         
         <service 

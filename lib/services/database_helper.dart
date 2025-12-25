@@ -28,16 +28,17 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 7, // INCREMENTADO A VERSIÓN 7
+      version: 8, // SUBIMOS VERSIÓN A 8 (Migración Clave Compuesta)
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
   }
 
   Future<void> _createDB(Database db, int version) async {
+    // TABLA GAMES CON CLAVE COMPUESTA (Slug + Fecha)
     await db.execute('''
     CREATE TABLE games (
-      slug TEXT PRIMARY KEY,
+      slug TEXT, -- Ya no es PRIMARY KEY única
       titulo TEXT NOT NULL,
       tipo TEXT DEFAULT 'game', 
       descripcion_corta TEXT,
@@ -53,13 +54,13 @@ class DatabaseHelper {
       metacritic INTEGER,
       tiendas TEXT,
       cleanTitle TEXT,
-      releaseDateTs INTEGER
+      releaseDateTs INTEGER,
+      PRIMARY KEY (slug, releaseDateTs) -- ¡SOLUCIÓN! Clave compuesta
     )
     ''');
     
-    // TABLA PARA PRÓXIMOS LANZAMIENTOS (Preparada)
     await db.execute('''
-    CREATE TABLE upcoming_games (
+    CREATE TABLE IF NOT EXISTS upcoming_games (
       slug TEXT PRIMARY KEY,
       titulo TEXT NOT NULL,
       fecha_lanzamiento TEXT,
@@ -70,7 +71,7 @@ class DatabaseHelper {
     ''');
 
     await db.execute('''
-    CREATE TABLE meta_filters (
+    CREATE TABLE IF NOT EXISTS meta_filters (
       type TEXT NOT NULL,
       value TEXT NOT NULL,
       display_order INTEGER DEFAULT 0,
@@ -78,7 +79,7 @@ class DatabaseHelper {
     )
     ''');
 
-    await db.execute('CREATE TABLE platforms_list (name TEXT PRIMARY KEY)');
+    await db.execute('CREATE TABLE IF NOT EXISTS platforms_list (name TEXT PRIMARY KEY)');
 
     await _createIndices(db);
   }
@@ -89,7 +90,6 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX IF NOT EXISTS idx_tipo ON games(tipo)'); 
     await db.execute('CREATE INDEX IF NOT EXISTS idx_metacritic ON games(metacritic)');
     
-    // Índice para Upcoming
     await db.execute('CREATE INDEX IF NOT EXISTS idx_upcoming_date ON upcoming_games(releaseDateTs)'); 
   }
 
@@ -108,19 +108,11 @@ class DatabaseHelper {
       return;
     }
     
+    // Migraciones intermedias...
     if (oldVersion < 6) {
-      debugPrint("Upgrading DB to v6: Creating platforms_list table...");
       await db.execute('CREATE TABLE IF NOT EXISTS platforms_list (name TEXT PRIMARY KEY)');
-      
-      try {
-         await db.execute("INSERT OR IGNORE INTO platforms_list (name) SELECT value FROM meta_filters WHERE type = 'platform'");
-      } catch (e) {
-         debugPrint("Error migrando plataformas en upgrade v6: $e");
-      }
     }
-
     if (oldVersion < 7) {
-       debugPrint("Upgrading DB to v7: Creating upcoming_games table...");
        await db.execute('''
         CREATE TABLE IF NOT EXISTS upcoming_games (
           slug TEXT PRIMARY KEY,
@@ -131,7 +123,39 @@ class DatabaseHelper {
           releaseDateTs INTEGER
         )
        ''');
-       await db.execute('CREATE INDEX IF NOT EXISTS idx_upcoming_date ON upcoming_games(releaseDateTs)'); 
+    }
+
+    // MIGRACIÓN V8: RECREAR TABLA GAMES PARA CLAVE COMPUESTA
+    if (oldVersion < 8) {
+      debugPrint("Upgrading DB to v8: Applying Composite Primary Key...");
+      // Borramos la tabla antigua (los datos se volverán a descargar con el sync)
+      await db.execute('DROP TABLE IF EXISTS games');
+      
+      // Recreamos con la nueva estructura
+      await db.execute('''
+        CREATE TABLE games (
+          slug TEXT,
+          titulo TEXT NOT NULL,
+          tipo TEXT DEFAULT 'game', 
+          descripcion_corta TEXT,
+          fecha_lanzamiento TEXT,
+          storage TEXT,
+          generos TEXT,
+          plataformas TEXT,
+          img_principal TEXT,
+          galeria TEXT,
+          idiomas TEXT,
+          idiomas_voces TEXT, 
+          idiomas_textos TEXT, 
+          metacritic INTEGER,
+          tiendas TEXT,
+          cleanTitle TEXT,
+          releaseDateTs INTEGER,
+          PRIMARY KEY (slug, releaseDateTs)
+        )
+      ''');
+      // Recreamos índices
+      await _createIndices(db);
     }
   }
 
@@ -139,12 +163,13 @@ class DatabaseHelper {
     if (kIsWeb) return;
     final db = await database;
     await db.delete('games');
-    await db.delete('upcoming_games'); // Limpiar upcoming
+    await db.delete('upcoming_games');
     await db.delete('meta_filters');
     await db.delete('platforms_list'); 
     debugPrint('Base de datos limpiada.');
   }
 
+  // ... (Resto de métodos savePlatformsDedicated, getPlatformsDedicated, saveMetaFilters, getMetaFilters, _regenerateFiltersInternal, getTopPlatformsRecent sin cambios) ...
   Future<void> savePlatformsDedicated(List<String> platforms) async {
     if (kIsWeb) return;
     final db = await database;
@@ -159,33 +184,22 @@ class DatabaseHelper {
       }
       await batch.commit(noResult: true);
     });
-    debugPrint('Plataformas guardadas en tabla dedicada (platforms_list).');
   }
 
   Future<List<String>> getPlatformsDedicated() async {
     if (kIsWeb) return [];
     final db = await database;
-    
     final result = await db.query('platforms_list', orderBy: 'name ASC');
     if (result.isEmpty) return [];
-
     return result.map((row) => row['name'] as String).toList();
   }
 
-  Future<void> saveMetaFilters(
-      List<String> genres, 
-      List<String> voices, 
-      List<String> texts, 
-      List<String> years, 
-      List<String> platforms) async {
+  Future<void> saveMetaFilters(List<String> genres, List<String> voices, List<String> texts, List<String> years, List<String> platforms) async {
     if (kIsWeb) return;
     final db = await database;
-    
     await db.transaction((txn) async {
       await txn.delete('meta_filters');
-      
       final batch = txn.batch();
-      
       int i = 0;
       for (var g in genres) batch.insert('meta_filters', {'type': 'genre', 'value': g, 'display_order': i++}, conflictAlgorithm: ConflictAlgorithm.replace);
       i = 0;
@@ -194,24 +208,18 @@ class DatabaseHelper {
       for (var t in texts) batch.insert('meta_filters', {'type': 'text', 'value': t, 'display_order': i++}, conflictAlgorithm: ConflictAlgorithm.replace);
       i = 0;
       for (var y in years) batch.insert('meta_filters', {'type': 'year', 'value': y, 'display_order': i++}, conflictAlgorithm: ConflictAlgorithm.replace);
-      
       i = 0;
       for (var p in platforms) batch.insert('meta_filters', {'type': 'platform', 'value': p, 'display_order': i++}, conflictAlgorithm: ConflictAlgorithm.replace);
-      
       await batch.commit(noResult: true);
     });
-    
     await savePlatformsDedicated(platforms);
   }
 
   Future<Map<String, List<String>>> getMetaFilters() async {
     if (kIsWeb) return {};
     final db = await database;
-    
     var result = await db.query('meta_filters', orderBy: 'display_order ASC'); 
-    
     List<String> platforms = await getPlatformsDedicated();
-
     if (platforms.isEmpty) {
         for (var row in result) {
            if (row['type'] == 'platform') {
@@ -219,20 +227,16 @@ class DatabaseHelper {
            }
         }
     }
-
     final count = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM games')) ?? 0;
     if (platforms.isEmpty && count > 0) {
-          debugPrint("⚠️ Plataformas perdidas detectadas. Regenerando con estrategia segura para 1M...");
           await _regenerateFiltersInternal(db);
           platforms = await getPlatformsDedicated();
           result = await db.query('meta_filters', orderBy: 'display_order ASC');
     }
-
     final genres = <String>[];
     final voices = <String>[];
     final texts = <String>[];
     final years = <String>[];
-    
     for (var row in result) {
       final val = row['value'] as String;
       switch (row['type']) {
@@ -242,78 +246,44 @@ class DatabaseHelper {
         case 'year': years.add(val); break;
       }
     }
-    
-    return {
-      'genres': genres,
-      'voices': voices,
-      'texts': texts,
-      'years': years,
-      'platforms': platforms,
-    };
+    return {'genres': genres, 'voices': voices, 'texts': texts, 'years': years, 'platforms': platforms};
   }
 
   Future<void> _regenerateFiltersInternal(Database db) async {
     try {
-      debugPrint("Iniciando regeneración profunda de filtros (Modo 1M seguro)...");
-      
       final Set<String> genresSet = {};
       final Set<String> voicesSet = {};
       final Set<String> textsSet = {};
       final Set<String> yearsSet = {};
       final Set<String> allPlatformsSet = {};
-
       const int batchSize = 2000;
       int offset = 0;
       bool hasMore = true;
-
       while (hasMore) {
-          final List<Map<String, dynamic>> cursor = await db.query(
-            'games', 
-            columns: ['generos', 'plataformas', 'idiomas_voces', 'idiomas_textos', 'fecha_lanzamiento'],
-            limit: batchSize,
-            offset: offset
-          );
-
-          if (cursor.isEmpty) {
-            hasMore = false;
-            break;
-          }
-
+          final List<Map<String, dynamic>> cursor = await db.query('games', columns: ['generos', 'plataformas', 'idiomas_voces', 'idiomas_textos', 'fecha_lanzamiento'], limit: batchSize, offset: offset);
+          if (cursor.isEmpty) { hasMore = false; break; }
           for (var row in cursor) {
              try {
                  final gList = jsonDecode(row['generos'] as String);
                  for (var g in gList) genresSet.add(g.toString().trim());
-
                  final pList = jsonDecode(row['plataformas'] as String);
-                 for (var p in pList) {
-                   final pStr = p.toString().trim();
-                   if (pStr.isNotEmpty) allPlatformsSet.add(pStr);
-                 }
-
+                 for (var p in pList) { final pStr = p.toString().trim(); if (pStr.isNotEmpty) allPlatformsSet.add(pStr); }
                  final vList = jsonDecode(row['idiomas_voces'] as String);
                  for (var v in vList) voicesSet.add(v.toString().trim());
-
                  final tList = jsonDecode(row['idiomas_textos'] as String);
                  for (var t in tList) textsSet.add(t.toString().trim());
-
                  final date = row['fecha_lanzamiento'] as String?;
-                 if (date != null && date.length >= 4) {
-                    final y = date.substring(0, 4);
-                    if (int.tryParse(y) != null) yearsSet.add(y);
-                 }
+                 if (date != null && date.length >= 4) { final y = date.substring(0, 4); if (int.tryParse(y) != null) yearsSet.add(y); }
              } catch (_) {}
           }
-          
           offset += batchSize;
           await Future.delayed(const Duration(milliseconds: 5)); 
       }
-      
       final genres = genresSet.toList()..sort();
       final voices = voicesSet.toList()..sort();
       final texts = textsSet.toList()..sort();
       final years = yearsSet.toList()..sort((a, b) => b.compareTo(a));
       final platforms = allPlatformsSet.toList()..sort();
-
       await db.transaction((txn) async {
         await txn.delete('meta_filters');
         final batch = txn.batch();
@@ -327,89 +297,48 @@ class DatabaseHelper {
         for (var y in years) batch.insert('meta_filters', {'type': 'year', 'value': y, 'display_order': i++}, conflictAlgorithm: ConflictAlgorithm.replace);
         await batch.commit(noResult: true);
       });
-
       await db.transaction((txn) async {
          await txn.delete('platforms_list');
          final batch = txn.batch();
-         for (var p in platforms) {
-            batch.insert('platforms_list', {'name': p}, conflictAlgorithm: ConflictAlgorithm.replace);
-         }
+         for (var p in platforms) { batch.insert('platforms_list', {'name': p}, conflictAlgorithm: ConflictAlgorithm.replace); }
          await batch.commit(noResult: true);
       });
-
-      debugPrint("Filtros regenerados exitosamente.");
-
-    } catch (e) {
-      debugPrint("Error regenerando filtros: $e");
-    }
+    } catch (e) { debugPrint("Error regenerando filtros: $e"); }
   }
 
   Future<List<String>> getTopPlatformsRecent(int limit) async {
     if (kIsWeb) return [];
     final db = await database;
     final oneYearAgo = DateTime.now().subtract(const Duration(days: 365)).millisecondsSinceEpoch;
-
     try {
       final Map<String, int> counts = {};
       const int batchSize = 2000;
       int offset = 0;
       bool hasMore = true;
-
       while (hasMore) {
-        final List<Map<String, dynamic>> result = await db.query(
-          'games',
-          columns: ['plataformas'],
-          where: 'releaseDateTs >= ?',
-          whereArgs: [oneYearAgo],
-          limit: batchSize,
-          offset: offset
-        );
-
-        if (result.isEmpty) {
-          hasMore = false;
-          break;
-        }
-
+        final List<Map<String, dynamic>> result = await db.query('games', columns: ['plataformas'], where: 'releaseDateTs >= ?', whereArgs: [oneYearAgo], limit: batchSize, offset: offset);
+        if (result.isEmpty) { hasMore = false; break; }
         for (var row in result) {
           try {
             final List<dynamic> list = jsonDecode(row['plataformas'] as String);
-            for (var p in list) {
-              final pStr = p.toString();
-              counts[pStr] = (counts[pStr] ?? 0) + 1;
-            }
+            for (var p in list) { final pStr = p.toString(); counts[pStr] = (counts[pStr] ?? 0) + 1; }
           } catch (_) {}
         }
-        
         offset += batchSize;
         await Future.delayed(const Duration(milliseconds: 2));
       }
-
       if (counts.isEmpty) {
-        final List<Map<String, dynamic>> fallbackResult = await db.query(
-           'games',
-           columns: ['plataformas'],
-           limit: 5000 
-        );
+        final List<Map<String, dynamic>> fallbackResult = await db.query('games', columns: ['plataformas'], limit: 5000);
         for (var row in fallbackResult) {
           try {
              final List<dynamic> list = jsonDecode(row['plataformas'] as String);
-             for (var p in list) {
-               final pStr = p.toString();
-               counts[pStr] = (counts[pStr] ?? 0) + 1;
-             }
+             for (var p in list) { final pStr = p.toString(); counts[pStr] = (counts[pStr] ?? 0) + 1; }
           } catch (_) {}
         }
       }
-
-      final sortedKeys = counts.keys.toList()
-        ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
-
+      final sortedKeys = counts.keys.toList()..sort((a, b) => counts[b]!.compareTo(counts[a]!));
       return sortedKeys.take(limit).toList();
-
-    } catch (e) {
-      debugPrint('Error obteniendo top plataformas: $e');
-      return [];
-    }
+    } catch (e) { return []; }
   }
 
   Future<void> insertGames(List<Game> games, {Function(double progress)? onProgress}) async {
@@ -420,8 +349,6 @@ class DatabaseHelper {
     int total = games.length;
 
     debugPrint('Iniciando inserción v4 con TurboMode dinámico...');
-
-    debugPrint('Desactivando índices temporalmente para velocidad máxima...');
     await _dropIndices(db);
 
     await db.transaction((txn) async {
@@ -466,26 +393,12 @@ class DatabaseHelper {
       else await Future.delayed(const Duration(milliseconds: 30));
     }
 
-    debugPrint('Reconstruyendo índices...');
     await _createIndices(db);
-    
     debugPrint('Inserción masiva finalizada.');
   }
 
-  Future<List<Game>> getGames({
-    int limit = 20,
-    int offset = 0,
-    String? query,
-    String? voiceLanguage,
-    String? textLanguage,
-    String? year,
-    String? genre,
-    String? platform,
-    String? tipo,
-    String sortBy = 'date', 
-  }) async {
+  Future<List<Game>> getGames({int limit = 20, int offset = 0, String? query, String? voiceLanguage, String? textLanguage, String? year, String? genre, String? platform, String? tipo, String sortBy = 'date'}) async {
     if (kIsWeb) return [];
-
     final db = await database;
     String? whereClause;
     List<dynamic> whereArgs = [];
@@ -495,12 +408,7 @@ class DatabaseHelper {
       whereClause = 'cleanTitle LIKE ?';
       whereArgs.add('%$cleanQuery%');
     }
-
-    void addCondition(String clause, dynamic arg) {
-      if (whereClause != null) whereClause = '$whereClause AND $clause';
-      else whereClause = clause;
-      whereArgs.add(arg);
-    }
+    void addCondition(String clause, dynamic arg) { if (whereClause != null) whereClause = '$whereClause AND $clause'; else whereClause = clause; whereArgs.add(arg); }
 
     if (tipo != null) addCondition('tipo = ?', tipo);
     if (voiceLanguage != null && voiceLanguage != 'Cualquiera') addCondition('idiomas_voces LIKE ?', '%${jsonEncode(voiceLanguage)}%');
@@ -513,15 +421,7 @@ class DatabaseHelper {
     if (sortBy == 'score') orderByClause = 'metacritic DESC, releaseDateTs DESC'; 
 
     try {
-      final List<Map<String, dynamic>> maps = await db.query(
-        'games',
-        where: whereClause,
-        whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
-        limit: limit,
-        offset: offset,
-        orderBy: orderByClause,
-      );
-      
+      final List<Map<String, dynamic>> maps = await db.query('games', where: whereClause, whereArgs: whereArgs.isNotEmpty ? whereArgs : null, limit: limit, offset: offset, orderBy: orderByClause);
       return maps.map((dbMap) {
           Map<String, dynamic> jsonMap = Map.of(dbMap);
           try {
@@ -533,9 +433,36 @@ class DatabaseHelper {
           } catch (e) {}
           return Game.fromJson(jsonMap);
       }).toList();
+    } catch (e) { return []; }
+  }
+
+  // --- ACTUALIZADO PARA CLAVE COMPUESTA ---
+  Future<Game?> getGameBySlug(String slug) async {
+    if (kIsWeb) return null;
+    final db = await database;
+    try {
+      final List<Map<String, dynamic>> maps = await db.query(
+        'games',
+        where: 'slug = ?',
+        whereArgs: [slug],
+        orderBy: 'releaseDateTs DESC', // Priorizar el más reciente (Remake)
+        limit: 1,
+      );
+      if (maps.isNotEmpty) {
+          Map<String, dynamic> jsonMap = Map.of(maps.first);
+          try {
+            jsonMap['generos'] = jsonDecode(maps.first['generos'] ?? '[]');
+            jsonMap['plataformas'] = jsonDecode(maps.first['plataformas'] ?? '[]');
+            jsonMap['galeria'] = jsonDecode(maps.first['galeria'] ?? '[]');
+            jsonMap['idiomas'] = jsonDecode(maps.first['idiomas'] ?? '{}');
+            jsonMap['tiendas'] = jsonDecode(maps.first['tiendas'] ?? '[]');
+          } catch (e) {}
+          return Game.fromJson(jsonMap);
+      }
+      return null;
     } catch (e) {
-      debugPrint('Error ejecutando query en getGames: $e');
-      return [];
+      debugPrint('Error buscando juego por slug: $e');
+      return null;
     }
   }
 

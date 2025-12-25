@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart'; 
 import 'package:translator/translator.dart'; 
+import 'package:share_plus/share_plus.dart'; 
 import '../models/game.dart';
 
 class GameDetailPage extends StatefulWidget {
@@ -66,6 +67,15 @@ class _GameDetailPageState extends State<GameDetailPage> {
     }
   }
 
+  void _shareGame() {
+    // Generamos el enlace usando tu subdominio de GitHub Pages
+    // Esto es un dominio real y válido que tú controlas.
+    final String deepLink = 'https://andymartin1991.github.io/VoxGamer/game/${widget.game.slug}';
+    final String message = '🎮 ${widget.game.titulo}\n\n$deepLink';
+    
+    Share.share(message, subject: widget.game.titulo);
+  }
+
   Color _getScoreColor(int score) {
     if (score >= 75) return const Color(0xFF66CC33);
     if (score >= 50) return const Color(0xFFFFCC33);
@@ -106,6 +116,22 @@ class _GameDetailPageState extends State<GameDetailPage> {
               ),
               onPressed: () => Navigator.pop(context),
             ),
+            actions: [
+              // BOTÓN COMPARTIR
+              IconButton(
+                icon: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(
+                    color: Colors.black45,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.share, size: 20, color: Colors.white),
+                ),
+                onPressed: _shareGame,
+                tooltip: 'Compartir juego',
+              ),
+              const SizedBox(width: 8),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               titlePadding: const EdgeInsets.only(left: 16, bottom: 16, right: 16),
               title: Text(

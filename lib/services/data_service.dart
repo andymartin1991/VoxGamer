@@ -67,6 +67,18 @@ class DataService {
     if (kIsWeb) return []; 
     return await _dbHelper.getTopPlatformsRecent(limit);
   }
+  
+  // NUEVO MÉTODO PARA DEEP LINKS
+  Future<Game?> getGameBySlug(String slug) async {
+    if (kIsWeb) {
+      try {
+        return _webCache.firstWhere((g) => g.slug == slug);
+      } catch (e) {
+        return null;
+      }
+    }
+    return await _dbHelper.getGameBySlug(slug);
+  }
 
   Future<void> syncGames({Function(double progress)? onProgress, bool forceDownload = true}) async {
     try {

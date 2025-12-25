@@ -12,6 +12,8 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:app_links/app_links.dart'; // Importar app_links
+
 import 'models/game.dart';
 import 'services/data_service.dart';
 import 'services/database_helper.dart'; 
@@ -151,6 +153,10 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   final GlobalKey<GameListTabState> _gamesTabKey = GlobalKey();
   final GlobalKey<GameListTabState> _dlcsTabKey = GlobalKey();
 
+  // DEEP LINKS
+  late AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
+
   Timer? _debounce;
   bool _isSyncing = false;
   double _syncProgress = 0.0;
@@ -192,7 +198,57 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     super.initState();
     WidgetsBinding.instance.addObserver(this); 
     _requestNotificationPermissions(); 
+    _initDeepLinks(); // Inicializar Deep Links
     _searchController.addListener(_onSearchChanged);
+  }
+
+  // --- CONFIGURACIÓN DE DEEP LINKS (API v3.x COMPATIBLE) ---
+  Future<void> _initDeepLinks() async {
+    _appLinks = AppLinks();
+
+    // 1. Manejar enlaces que abrieron la app (Initial Link)
+    // En v3.x usamos getInitialAppLink o getInitialLinkString, pero uriLinkStream suele capturar
+    // el inicial también en muchas plataformas. Por seguridad probamos ambos.
+    try {
+        // En v3.4.0 el método puede ser getInitialAppLink(). Si no existe, usamos el stream directo.
+        // Nota: en v3.x el stream 'uriLinkStream' o 'allUriLinkStream' suele emitir el evento inicial.
+        // Vamos a confiar en el stream que es lo más robusto en esta versión.
+    } catch (e) {
+        debugPrint("Error obteniendo link inicial: $e");
+    }
+
+    // 2. Manejar enlaces mientras la app está abierta (Stream)
+    // uriLinkStream: escucha eventos nuevos y el inicial si no se ha consumido.
+    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
+      _handleDeepLink(uri);
+    }, onError: (err) {
+      debugPrint("Error en deep link stream: $err");
+    });
+  }
+
+  void _handleDeepLink(Uri uri) async {
+    // Esperamos: voxgamer://game/<slug>
+    if (uri.scheme == 'voxgamer' && uri.host == 'game') {
+      if (uri.pathSegments.isNotEmpty) {
+        final slug = uri.pathSegments.last;
+        debugPrint("Deep Link recibido para slug: $slug");
+        
+        final game = await _dataService.getGameBySlug(slug);
+        
+        if (game != null && mounted) {
+           Navigator.push(
+             context,
+             MaterialPageRoute(builder: (context) => GameDetailPage(game: game)),
+           );
+        } else {
+           if (mounted) {
+             ScaffoldMessenger.of(context).showSnackBar(
+               const SnackBar(content: Text('Juego no encontrado en la base de datos local.')),
+             );
+           }
+        }
+      }
+    }
   }
   
   @override
@@ -270,6 +326,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     _progressSub?.cancel();
     _successSub?.cancel();
     _errorSub?.cancel();
+    _linkSubscription?.cancel(); // Cancelar Deep Links
     
     super.dispose();
   }

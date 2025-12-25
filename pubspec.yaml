@@ -30,6 +30,8 @@ dependencies:
   package_info_plus: ^8.0.0
   shared_preferences: ^2.2.0
   flutter_background_service: ^5.0.0 # Servicio Foreground
+  share_plus: ^10.0.0 # Para compartir texto
+  app_links: ^3.4.0 # Downgrade a una versión muy estable para evitar errores de compilación Gradle
 
 dev_dependencies:
   flutter_test:

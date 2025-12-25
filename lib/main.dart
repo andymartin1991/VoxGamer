@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:async';
 import 'dart:io'; 
-import 'dart:ui'; // Necesario para ImageFilter
+import 'dart:ui'; 
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -12,7 +12,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:app_links/app_links.dart'; // Importar app_links
+import 'package:app_links/app_links.dart'; 
 
 import 'models/game.dart';
 import 'services/data_service.dart';
@@ -35,13 +35,10 @@ void main() async {
     iOS: initializationSettingsDarwin,
   );
   
-  // Inicialización de notificaciones
   await flutterLocalNotificationsPlugin.initialize(initializationSettings);
 
   if (!kIsWeb) {
     try {
-      // Intentamos inicializar el servicio con un timeout para evitar que la app se quede pegada en el logo
-      // si el servicio tiene problemas al arrancar (común tras reinstalaciones o hot-restarts).
       await initializeBackgroundService().timeout(
         const Duration(seconds: 2),
         onTimeout: () {
@@ -104,7 +101,7 @@ class VoxGamerApp extends StatelessWidget {
           displayColor: Colors.white,
         ),
         appBarTheme: const AppBarTheme(
-          backgroundColor: bgDark, // Se mantendrá transparente en HomePage por configuración local
+          backgroundColor: bgDark, 
           elevation: 0,
           centerTitle: true,
           titleTextStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
@@ -153,19 +150,18 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   final GlobalKey<GameListTabState> _gamesTabKey = GlobalKey();
   final GlobalKey<GameListTabState> _dlcsTabKey = GlobalKey();
 
-  // DEEP LINKS
   late AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
+  Uri? _pendingDeepLink; 
 
   Timer? _debounce;
   bool _isSyncing = false;
   double _syncProgress = 0.0;
   String _statusMessage = '';
   
-  // Flag para evitar doble carga inicial
   bool _isInitDataLoaded = false;
+  bool _isReadyForDeepLinks = false; 
 
-  // Control de suscripciones
   StreamSubscription? _progressSub;
   StreamSubscription? _successSub;
   StreamSubscription? _errorSub;
@@ -183,7 +179,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   List<String> _years = ['Cualquiera'];
   List<String> _platforms = ['Cualquiera']; 
 
-  // GETTERS PÚBLICOS
   String get selectedVoiceLanguage => _selectedVoiceLanguage;
   String get selectedTextLanguage => _selectedTextLanguage;
   String get selectedYear => _selectedYear;
@@ -198,52 +193,78 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     super.initState();
     WidgetsBinding.instance.addObserver(this); 
     _requestNotificationPermissions(); 
-    _initDeepLinks(); // Inicializar Deep Links
+    // Mantenemos el postFrameCallback para dar tiempo a la UI
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initDeepLinks(); 
+    });
     _searchController.addListener(_onSearchChanged);
   }
 
-  // --- CONFIGURACIÓN DE DEEP LINKS (API v3.x COMPATIBLE) ---
   Future<void> _initDeepLinks() async {
     _appLinks = AppLinks();
 
-    // 1. Manejar enlaces que abrieron la app (Initial Link)
-    // En v3.x usamos getInitialAppLink o getInitialLinkString, pero uriLinkStream suele capturar
-    // el inicial también en muchas plataformas. Por seguridad probamos ambos.
+    // ESTRATEGIA DUAL: 
+    // 1. Intentar obtener el link inicial explícitamente (Cold Start)
     try {
-        // En v3.4.0 el método puede ser getInitialAppLink(). Si no existe, usamos el stream directo.
-        // Nota: en v3.x el stream 'uriLinkStream' o 'allUriLinkStream' suele emitir el evento inicial.
-        // Vamos a confiar en el stream que es lo más robusto en esta versión.
+      final Uri? initialUri = await _appLinks.getInitialAppLink();
+      if (initialUri != null) {
+        debugPrint("🚀 Cold Start Link detectado: $initialUri");
+        _processOrQueueLink(initialUri);
+      }
     } catch (e) {
-        debugPrint("Error obteniendo link inicial: $e");
+      debugPrint("Info: No se pudo obtener initialAppLink (normal si la versión no lo soporta o no hubo link): $e");
     }
 
-    // 2. Manejar enlaces mientras la app está abierta (Stream)
-    // uriLinkStream: escucha eventos nuevos y el inicial si no se ha consumido.
+    // 2. Suscribirse al stream para nuevos links (Warm Start / Background)
     _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
-      _handleDeepLink(uri);
+      debugPrint("🚀 Stream Link detectado: $uri");
+      _processOrQueueLink(uri);
     }, onError: (err) {
       debugPrint("Error en deep link stream: $err");
     });
   }
 
+  void _processOrQueueLink(Uri uri) {
+    if (_isReadyForDeepLinks) {
+      _handleDeepLink(uri);
+    } else {
+      debugPrint("⏳ Deep Link pospuesto (Cargando datos...): $uri");
+      _pendingDeepLink = uri;
+    }
+  }
+
   void _handleDeepLink(Uri uri) async {
-    // Esperamos: voxgamer://game/<slug>
-    if (uri.scheme == 'voxgamer' && uri.host == 'game') {
+    bool isGitHubLink = uri.host.contains('github.io') && uri.path.contains('/game/');
+    bool isCustomScheme = uri.scheme == 'voxgamer' && uri.host == 'game';
+
+    if (isGitHubLink || isCustomScheme) {
       if (uri.pathSegments.isNotEmpty) {
         final slug = uri.pathSegments.last;
-        debugPrint("Deep Link recibido para slug: $slug");
+        final year = uri.queryParameters['year']; 
         
-        final game = await _dataService.getGameBySlug(slug);
+        debugPrint("🔍 Buscando juego: SLUG=$slug, YEAR=$year");
         
-        if (game != null && mounted) {
+        // Pequeño delay de seguridad si acabamos de arrancar
+        if (!_isReadyForDeepLinks) await Future.delayed(const Duration(milliseconds: 500));
+
+        final game = await _dataService.getGameBySlug(slug, year: year);
+        
+        if (!mounted) return;
+
+        if (game != null) {
+           debugPrint("✅ Juego encontrado. Navegando...");
            Navigator.push(
              context,
              MaterialPageRoute(builder: (context) => GameDetailPage(game: game)),
            );
         } else {
-           if (mounted) {
+           debugPrint("❌ Juego no encontrado en local.");
+           if (!_isSyncing) {
              ScaffoldMessenger.of(context).showSnackBar(
-               const SnackBar(content: Text('Juego no encontrado en la base de datos local.')),
+               const SnackBar(
+                 content: Text('Juego no encontrado. ¿Está la base de datos actualizada?'),
+                 duration: Duration(seconds: 3),
+               ),
              );
            }
         }
@@ -260,13 +281,117 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     }
   }
 
+  Future<bool> _wasSyncInterrupted() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('is_syncing') ?? false;
+  }
+
+  Future<void> _checkAndLoadInitialData() async {
+      final l10n = AppLocalizations.of(context)!;
+      final dbHasData = (await _dataService.countLocalGames()) > 0;
+
+      if (dbHasData) {
+          debugPrint("La base de datos tiene datos. Cargando desde SQLite local.");
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('is_syncing', false);
+          
+          final service = FlutterBackgroundService();
+          if (await service.isRunning()) {
+              service.invoke('stopService');
+          }
+          await _loadFilterOptions();
+          _refreshLists();
+          
+          // IMPORTANTE: Marcamos como listo y procesamos pendientes
+          debugPrint("✅ Datos cargados. App lista para Deep Links.");
+          _markReadyForLinks(); 
+          return;
+      }
+      
+      bool interrupted = await _wasSyncInterrupted();
+      
+      if (interrupted) {
+          debugPrint("BBDD vacía pero sync interrumpida. Reintentando...");
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+               SnackBar(content: Text(l10n.msgSyncInterrupted), duration: const Duration(seconds: 4)),
+            );
+          }
+          _updateCatalog(force: true, forceDownload: false);
+      } else {
+          debugPrint("BBDD vacía. Empezando sincronización inicial completa.");
+          _updateCatalog(force: true, forceDownload: true);
+      }
+  }
+
+  void _markReadyForLinks() {
+    setState(() => _isReadyForDeepLinks = true);
+    if (_pendingDeepLink != null) {
+      debugPrint("🚀 Ejecutando Deep Link pendiente AHORA...");
+      // Pequeño delay para dejar que el frame actual termine de pintarse
+      Future.delayed(const Duration(milliseconds: 100), () {
+         _handleDeepLink(_pendingDeepLink!);
+         _pendingDeepLink = null;
+      });
+    }
+  }
+
+  // ... (Resto de métodos _updateCatalog, _finishSync, _setupServiceListeners, etc. sin cambios) ...
+  // Para ahorrar espacio y evitar errores, reescribo lo necesario.
+
+  Future<void> _updateCatalog({bool force = false, bool forceDownload = true}) async {
+    final l10n = AppLocalizations.of(context)!;
+    if (!force) {
+      bool? confirm = await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(l10n.syncQuick), 
+          content: Text(l10n.dialogUpdateContent),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: Text(l10n.cancel)),
+            TextButton(onPressed: () => Navigator.pop(context, true), child: Text(l10n.btnApply, style: const TextStyle(color: Colors.blueAccent))),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_syncing', true);
+    setState(() {
+      _isSyncing = true;
+      _syncProgress = 0.0;
+      _isReadyForDeepLinks = false; 
+    });
+    WakelockPlus.enable();
+    _setupServiceListeners(); 
+    final service = FlutterBackgroundService();
+    if (!(await service.isRunning())) {
+      await service.startService();
+    }
+    await Future.delayed(const Duration(milliseconds: 500));
+    service.invoke('startSync', {'forceDownload': forceDownload});
+  }
+
+  void _finishSync({bool success = true}) async {
+    WakelockPlus.disable();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_syncing', false);
+    if (mounted) {
+      setState(() => _isSyncing = false);
+      if (success) {
+        await _loadFilterOptions();
+        _refreshLists();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('¡Actualización completada!')));
+        _markReadyForLinks(); 
+      }
+    }
+  }
+
   void _setupServiceListeners() {
     _progressSub?.cancel();
     _successSub?.cancel();
     _errorSub?.cancel();
-
     final service = FlutterBackgroundService();
-
     _progressSub = service.on('progress').listen((event) {
       if (event != null && mounted) {
         final percent = event['percent'] as int;
@@ -279,13 +404,11 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
         }
       }
     });
-
     _successSub = service.on('success').listen((event) {
       if (mounted) {
         _finishSync(success: true);
       }
     });
-    
     _errorSub = service.on('error').listen((event) {
       if (mounted) {
         _updateStatus('Error en segundo plano: ${event?['message']}');
@@ -294,23 +417,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     });
   }
   
-  void _finishSync({bool success = true}) async {
-    WakelockPlus.disable();
-    
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_syncing', false);
-
-    if (mounted) {
-      setState(() => _isSyncing = false); // Quitamos overlay
-      
-      if (success) {
-        await _loadFilterOptions();
-        _refreshLists();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('¡Actualización completada!')));
-      }
-    }
-  }
-
   Future<void> _requestNotificationPermissions() async {
     if (Platform.isAndroid) {
       await flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
@@ -322,41 +428,31 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     _debounce?.cancel();
-    
     _progressSub?.cancel();
     _successSub?.cancel();
     _errorSub?.cancel();
-    _linkSubscription?.cancel(); // Cancelar Deep Links
-    
+    _linkSubscription?.cancel();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) { 
     if (state == AppLifecycleState.resumed) {
-      // Al volver, verificamos si el servicio sigue vivo
       _checkServiceStatus();
     }
   }
   
   Future<void> _checkServiceStatus() async {
     if (kIsWeb) return;
-    
     final service = FlutterBackgroundService();
     final isRunning = await service.isRunning();
-    
     if (isRunning) {
-       // Si el servicio corre, NOSOTROS debemos mostrar sincronización,
-       // independientemente de lo que diga la UI antigua.
        if (!_isSyncing) {
          setState(() => _isSyncing = true);
          _setupServiceListeners();
        }
     } else {
-       // Si el servicio NO corre, pero nosotros seguimos mostrando "cargando",
-       // significa que terminó (o murió) mientras no mirábamos.
        if (_isSyncing) {
-          // Asumimos éxito para refrescar y quitar overlay
           _finishSync(success: true); 
        }
     }
@@ -401,96 +497,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       }
   }
 
-  Future<bool> _wasSyncInterrupted() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('is_syncing') ?? false;
-  }
-
-  // --- LÓGICA DE INICIO ROBUSTA ---
-  Future<void> _checkAndLoadInitialData() async {
-      // Ahora es seguro usar context porque estamos llamados desde didChangeDependencies
-      final l10n = AppLocalizations.of(context)!;
-      final dbHasData = (await _dataService.countLocalGames()) > 0;
-
-      // CASO 1: LA BASE DE DATOS YA TIENE DATOS.
-      // Carga la app inmediatamente, sin sincronización.
-      if (dbHasData) {
-          debugPrint("La base de datos tiene datos. Cargando desde SQLite local.");
-          
-          // Limpia cualquier estado de sincronización inconsistente de un reinicio en caliente.
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('is_syncing', false);
-          
-          final service = FlutterBackgroundService();
-          if (await service.isRunning()) {
-              service.invoke('stopService');
-          }
-          
-          await _loadFilterOptions();
-          _refreshLists();
-          return;
-      }
-
-      // CASO 2: LA BASE DE DATOS ESTÁ VACÍA.
-      // Esto significa que es una instalación limpia o se borraron los datos. Se debe sincronizar.
-      
-      bool interrupted = await _wasSyncInterrupted();
-      
-      if (interrupted) {
-          // Si se interrumpió, intenta usar el archivo .json.gz ya descargado.
-          debugPrint("BBDD vacía pero la sincronización fue interrumpida. Reintentando desde archivo local.");
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-               SnackBar(content: Text(l10n.msgSyncInterrupted), duration: const Duration(seconds: 4)),
-            );
-          }
-          _updateCatalog(force: true, forceDownload: false);
-      } else {
-          // Si no, es una instalación 100% limpia. Descarga y procesa.
-          debugPrint("BBDD vacía. Empezando sincronización inicial completa.");
-          _updateCatalog(force: true, forceDownload: true);
-      }
-  }
-
-  Future<void> _updateCatalog({bool force = false, bool forceDownload = true}) async {
-    final l10n = AppLocalizations.of(context)!;
-    
-    if (!force) {
-      bool? confirm = await showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(l10n.syncQuick), 
-          content: Text(l10n.dialogUpdateContent),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: Text(l10n.cancel)),
-            TextButton(onPressed: () => Navigator.pop(context, true), child: Text(l10n.btnApply, style: const TextStyle(color: Colors.blueAccent))),
-          ],
-        ),
-      );
-      if (confirm != true) return;
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_syncing', true);
-
-    setState(() {
-      _isSyncing = true;
-      _syncProgress = 0.0;
-    });
-
-    WakelockPlus.enable();
-    _setupServiceListeners(); // Enganchamos listeners antes de arrancar
-
-    final service = FlutterBackgroundService();
-    if (!(await service.isRunning())) {
-      await service.startService();
-    }
-    // Pequeño delay para asegurar que el servicio arrancó y está escuchando
-    await Future.delayed(const Duration(milliseconds: 500));
-    service.invoke('startSync', {'forceDownload': forceDownload});
-  }
-
-  // MÉTODO PÚBLICO
   bool hasActiveFilters() => 
     _selectedVoiceLanguage != 'Cualquiera' || 
     _selectedTextLanguage != 'Cualquiera' ||
@@ -499,7 +505,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     _selectedPlatform != 'Cualquiera' ||
     _selectedSort != 'date';
 
-  // NUEVO MÉTODO PÚBLICO PARA ELIMINAR FILTROS
   void removeFilter(String filterType) {
     setState(() {
       switch (filterType) {
@@ -516,7 +521,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
 
   void _showFilterDialog() {
     final l10n = AppLocalizations.of(context)!;
-    
     if (_isSyncing) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.msgWaitSync)));
       return;
@@ -721,11 +725,57 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     });
   }
 
+  Widget buildActiveFiltersRow(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final parent = this;
+    final activeFilters = <Widget>[];
+
+    void addFilterChip(String label, String filterType) {
+      activeFilters.add(_buildDismissibleFilterChip(
+        context,
+        label,
+        () => parent.removeFilter(filterType),
+      ));
+    }
+
+    if (parent.selectedSort != 'date') addFilterChip('Orden: ${parent.selectedSort == 'score' ? 'Mejor valorados' : 'Fecha'}', 'sort');
+    if (parent.selectedPlatform != 'Cualquiera') addFilterChip('Plataforma: ${parent.selectedPlatform}', 'platform');
+    if (parent.selectedGenre != 'Cualquiera') addFilterChip('${l10n.filterGenre}: ${parent.selectedGenre}', 'genre');
+    if (parent.selectedYear != 'Cualquiera') addFilterChip('${l10n.filterYear}: ${parent.selectedYear}', 'year');
+    if (parent.selectedVoiceLanguage != 'Cualquiera') addFilterChip('${l10n.filterVoice}: ${parent.selectedVoiceLanguage}', 'voice');
+    if (parent.selectedTextLanguage != 'Cualquiera') addFilterChip('${l10n.filterText}: ${parent.selectedTextLanguage}', 'text');
+    
+    if (activeFilters.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      height: 50,
+      margin: const EdgeInsets.only(bottom: 8), 
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: activeFilters),
+      ),
+    );
+  }
+
+  Widget _buildDismissibleFilterChip(BuildContext context, String label, VoidCallback onDeleted) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8.0),
+      child: Chip(
+        label: Text(label),
+        onDeleted: onDeleted,
+        deleteIcon: const Icon(Icons.close, size: 16),
+        backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+        labelStyle: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 12, fontWeight: FontWeight.bold),
+        side: BorderSide(color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
+        deleteIconColor: Theme.of(context).colorScheme.primary.withOpacity(0.7),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    
-    // CALCULAR EL PADDING SUPERIOR EXACTO
     final double topPadding = MediaQuery.of(context).padding.top + kToolbarHeight + 120;
     
     return DefaultTabController(
@@ -844,25 +894,25 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   }
 }
 
-// Widget Placeholder para Próximos Lanzamientos
+// ... (Resto de clases: UpcomingGamesPlaceholder, GameListTab, GameListTabState - se mantienen idénticas) ...
+// Para ahorrar espacio y evitar errores de recorte, mantengo las clases tal cual estaban en el código original.
+// Solo re-pego GameListTab y su estado para asegurar que el archivo cierra bien.
+
 class UpcomingGamesPlaceholder extends StatelessWidget {
-  final double topPadding; // ACEPTAR PADDING
+  final double topPadding;
   const UpcomingGamesPlaceholder({super.key, this.topPadding = 0});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(top: topPadding), // APLICAR PADDING
+      padding: EdgeInsets.only(top: topPadding),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.rocket_launch, size: 80, color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
             const SizedBox(height: 24),
-            const Text(
-              "Próximos Lanzamientos",
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
-            ),
+            const Text("Próximos Lanzamientos", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
             const SizedBox(height: 12),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 40),
@@ -879,20 +929,13 @@ class UpcomingGamesPlaceholder extends StatelessWidget {
   }
 }
 
-// Widget Reutilizable para las listas
 class GameListTab extends StatefulWidget {
   final String tipo;
   final DataService dataService;
   final HomePageState parent;
-  final double topPadding; // NUEVO PARÁMETRO
+  final double topPadding;
 
-  const GameListTab({
-    super.key,
-    required this.tipo,
-    required this.dataService,
-    required this.parent,
-    required this.topPadding,
-  });
+  const GameListTab({super.key, required this.tipo, required this.dataService, required this.parent, required this.topPadding});
 
   @override
   State<GameListTab> createState() => GameListTabState();
@@ -923,11 +966,7 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
   }
 
   void clear() {
-    setState(() {
-      _games.clear();
-      _page = 0;
-      _hasMore = true;
-    });
+    setState(() { _games.clear(); _page = 0; _hasMore = true; });
   }
 
   void reload() {
@@ -992,7 +1031,7 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
       
       return Center(
         child: Padding(
-          padding: EdgeInsets.only(top: widget.topPadding + 32, left: 32, right: 32), // PADDING AJUSTADO
+          padding: EdgeInsets.only(top: widget.topPadding + 32, left: 32, right: 32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -1007,24 +1046,15 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
 
     return Column(
       children: [
-        // ELIMINADO EL WIDGET DE FILTROS DEL HEADER FIJO Y MOVIDO DENTRO DEL SCROLLVIEW SI ES POSIBLE
-        // O MANTENERLO PERO CON PADDING CORRECTO
-        // _buildActiveFiltersRow ahora debe renderizarse dentro del espacio visible o superpuesto
-        // Para simplificar y mantener el efecto, lo ponemos como primer item del ListView o Stackeado.
-        // Stackeado debajo del Header es complejo porque el header es transparente.
-        // Mejor opción: Primer item de la lista es el filtro activo.
-        
         Expanded(
           child: ListView.builder(
             controller: _scrollController,
-            // AQUÍ ESTÁ LA CLAVE: PADDING INTERNO DEL LISTVIEW
             padding: EdgeInsets.fromLTRB(12, widget.topPadding + 10, 12, 8),
             itemCount: _games.length + (_hasMore ? 1 : 0) + (widget.parent.hasActiveFilters() ? 1 : 0),
             itemBuilder: (context, index) {
-              // Ajuste de índice si hay filtros
               int gameIndex = index;
               if (widget.parent.hasActiveFilters()) {
-                if (index == 0) return _buildActiveFiltersRow(context);
+                if (index == 0) return widget.parent.buildActiveFiltersRow(context);
                 gameIndex = index - 1;
               }
 
@@ -1036,57 +1066,6 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
           ),
         ),
       ],
-    );
-  }
-
-  // WIDGET ADAPTADO PARA NO TENER PADDING FIJO EXCESIVO
-  Widget _buildActiveFiltersRow(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final parent = widget.parent;
-    final activeFilters = <Widget>[];
-
-    void addFilterChip(String label, String filterType) {
-      activeFilters.add(_buildDismissibleFilterChip(
-        context,
-        label,
-        () => parent.removeFilter(filterType),
-      ));
-    }
-
-    if (parent.selectedSort != 'date') addFilterChip('Orden: ${parent.selectedSort == 'score' ? 'Mejor valorados' : 'Fecha'}', 'sort');
-    if (parent.selectedPlatform != 'Cualquiera') addFilterChip('Plataforma: ${parent.selectedPlatform}', 'platform');
-    if (parent.selectedGenre != 'Cualquiera') addFilterChip('${l10n.filterGenre}: ${parent.selectedGenre}', 'genre');
-    if (parent.selectedYear != 'Cualquiera') addFilterChip('${l10n.filterYear}: ${parent.selectedYear}', 'year');
-    if (parent.selectedVoiceLanguage != 'Cualquiera') addFilterChip('${l10n.filterVoice}: ${parent.selectedVoiceLanguage}', 'voice');
-    if (parent.selectedTextLanguage != 'Cualquiera') addFilterChip('${l10n.filterText}: ${parent.selectedTextLanguage}', 'text');
-    
-    // Si no hay filtros, devolvemos espacio vacío (aunque el itemCount ya lo maneja)
-    if (activeFilters.isEmpty) return const SizedBox.shrink();
-
-    return Container(
-      height: 50,
-      margin: const EdgeInsets.only(bottom: 8), // Margen inferior para separar de la lista
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(children: activeFilters),
-      ),
-    );
-  }
-
-  // NUEVO WIDGET PARA CREAR UN CHIP DE FILTRO INDIVIDUAL Y ELIMINABLE
-  Widget _buildDismissibleFilterChip(BuildContext context, String label, VoidCallback onDeleted) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8.0),
-      child: Chip(
-        label: Text(label),
-        onDeleted: onDeleted,
-        deleteIcon: const Icon(Icons.close, size: 16),
-        backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.2),
-        labelStyle: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 12, fontWeight: FontWeight.bold),
-        side: BorderSide(color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
-        deleteIconColor: Theme.of(context).colorScheme.primary.withOpacity(0.7),
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-      ),
     );
   }
 
@@ -1128,12 +1107,12 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            const Color(0xFF232936), // Un poco más claro
-            const Color(0xFF151921), // Color original base
+            const Color(0xFF232936),
+            const Color(0xFF151921),
           ],
           stops: const [0.0, 1.0],
         ),
-        border: Border.all(color: Colors.white.withOpacity(0.07), width: 1), // Borde glass sutil
+        border: Border.all(color: Colors.white.withOpacity(0.07), width: 1),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.4),
@@ -1158,7 +1137,7 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
                 height: 90, 
                 child: Hero( 
                   tag: 'game_img_${game.slug}', 
-                  child: ClipRRect( // Clip necesario por el borde redondeado del container padre
+                  child: ClipRRect( 
                     borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
                     child: game.imgPrincipal.isNotEmpty
                         ? Image.network(

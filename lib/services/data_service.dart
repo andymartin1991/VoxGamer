@@ -20,7 +20,6 @@ class SyncResult {
 
 class DataService {
   static const String _dataUrl = 'https://raw.githubusercontent.com/andymartin1991/SteamDataScraper/main/global_games.json.gz';
-  // NUEVA URL (Placeholder para cuando tengas el JSON de Próximos Lanzamientos)
   static const String _upcomingDataUrl = 'https://raw.githubusercontent.com/andymartin1991/SteamDataScraper/main/upcoming_games.json.gz';
   
   static const String _localFileName = 'games_cache.json.gz';
@@ -30,7 +29,6 @@ class DataService {
   List<Game> _webCache = [];
   Map<String, List<String>> _webFilters = {};
 
-  // Método público para contar juegos
   Future<int> countLocalGames() async {
     if (kIsWeb) return _webCache.length;
     return await _dbHelper.countGames();
@@ -62,22 +60,29 @@ class DataService {
     }
   }
 
-  // NUEVO MÉTODO PASARELA
   Future<List<String>> getTopPlatforms(int limit) async {
     if (kIsWeb) return []; 
     return await _dbHelper.getTopPlatformsRecent(limit);
   }
   
-  // NUEVO MÉTODO PARA DEEP LINKS
-  Future<Game?> getGameBySlug(String slug) async {
+  // --- ACTUALIZADO: Acepta 'year' ---
+  Future<Game?> getGameBySlug(String slug, {String? year}) async {
     if (kIsWeb) {
       try {
-        return _webCache.firstWhere((g) => g.slug == slug);
+        // En web el filtro es simple: slug y si hay año, que empiece por él
+        return _webCache.firstWhere((g) {
+          bool matchSlug = g.slug == slug;
+          if (!matchSlug) return false;
+          if (year != null && year.isNotEmpty) {
+             return g.fechaLanzamiento.startsWith(year);
+          }
+          return true;
+        });
       } catch (e) {
         return null;
       }
     }
-    return await _dbHelper.getGameBySlug(slug);
+    return await _dbHelper.getGameBySlug(slug, year: year);
   }
 
   Future<void> syncGames({Function(double progress)? onProgress, bool forceDownload = true}) async {
@@ -177,21 +182,11 @@ class DataService {
       }
     });
     
-    // GUARDAR FILTROS (Incluyendo lógica dedicada)
     await _dbHelper.saveMetaFilters(result.genres, result.voices, result.texts, result.years, result.platforms);
-    
-    // -------------------------------------------------------------
-    // AQUÍ IRÍA LA LLAMADA FUTURA A _syncUpcoming()
-    // -------------------------------------------------------------
-    // await _syncUpcoming(onProgress); 
   }
 
-  // MÉTODO SKELETON PARA FUTURA IMPLEMENTACIÓN
   Future<void> _syncUpcoming(Function(double progress)? onProgress) async {
      debugPrint("Sincronizando próximos lanzamientos...");
-     // 1. Descargar _upcomingDataUrl
-     // 2. Descomprimir
-     // 3. Insertar en tabla 'upcoming_games' (que deberás crear en DatabaseHelper)
   }
   
   static SyncResult _decompressAndParse(Uint8List compressedBytes) {

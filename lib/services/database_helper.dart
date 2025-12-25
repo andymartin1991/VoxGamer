@@ -28,17 +28,16 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 8, // SUBIMOS VERSIÓN A 8 (Migración Clave Compuesta)
+      version: 8, 
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
   }
 
   Future<void> _createDB(Database db, int version) async {
-    // TABLA GAMES CON CLAVE COMPUESTA (Slug + Fecha)
     await db.execute('''
     CREATE TABLE games (
-      slug TEXT, -- Ya no es PRIMARY KEY única
+      slug TEXT,
       titulo TEXT NOT NULL,
       tipo TEXT DEFAULT 'game', 
       descripcion_corta TEXT,
@@ -55,7 +54,7 @@ class DatabaseHelper {
       tiendas TEXT,
       cleanTitle TEXT,
       releaseDateTs INTEGER,
-      PRIMARY KEY (slug, releaseDateTs) -- ¡SOLUCIÓN! Clave compuesta
+      PRIMARY KEY (slug, releaseDateTs)
     )
     ''');
     
@@ -108,7 +107,6 @@ class DatabaseHelper {
       return;
     }
     
-    // Migraciones intermedias...
     if (oldVersion < 6) {
       await db.execute('CREATE TABLE IF NOT EXISTS platforms_list (name TEXT PRIMARY KEY)');
     }
@@ -125,13 +123,10 @@ class DatabaseHelper {
        ''');
     }
 
-    // MIGRACIÓN V8: RECREAR TABLA GAMES PARA CLAVE COMPUESTA
     if (oldVersion < 8) {
       debugPrint("Upgrading DB to v8: Applying Composite Primary Key...");
-      // Borramos la tabla antigua (los datos se volverán a descargar con el sync)
       await db.execute('DROP TABLE IF EXISTS games');
       
-      // Recreamos con la nueva estructura
       await db.execute('''
         CREATE TABLE games (
           slug TEXT,
@@ -154,7 +149,6 @@ class DatabaseHelper {
           PRIMARY KEY (slug, releaseDateTs)
         )
       ''');
-      // Recreamos índices
       await _createIndices(db);
     }
   }
@@ -169,7 +163,6 @@ class DatabaseHelper {
     debugPrint('Base de datos limpiada.');
   }
 
-  // ... (Resto de métodos savePlatformsDedicated, getPlatformsDedicated, saveMetaFilters, getMetaFilters, _regenerateFiltersInternal, getTopPlatformsRecent sin cambios) ...
   Future<void> savePlatformsDedicated(List<String> platforms) async {
     if (kIsWeb) return;
     final db = await database;
@@ -436,18 +429,28 @@ class DatabaseHelper {
     } catch (e) { return []; }
   }
 
-  // --- ACTUALIZADO PARA CLAVE COMPUESTA ---
-  Future<Game?> getGameBySlug(String slug) async {
+  // --- ACTUALIZADO: Acepta un 'year' opcional para filtrar duplicados ---
+  Future<Game?> getGameBySlug(String slug, {String? year}) async {
     if (kIsWeb) return null;
     final db = await database;
     try {
+      String whereClause = 'slug = ?';
+      List<dynamic> args = [slug];
+
+      // Si nos pasan un año, filtramos también por fecha de lanzamiento
+      if (year != null && year.isNotEmpty) {
+        whereClause += ' AND fecha_lanzamiento LIKE ?';
+        args.add('$year%'); // Busca "1998-01-21" usando "1998%"
+      }
+
       final List<Map<String, dynamic>> maps = await db.query(
         'games',
-        where: 'slug = ?',
-        whereArgs: [slug],
-        orderBy: 'releaseDateTs DESC', // Priorizar el más reciente (Remake)
+        where: whereClause,
+        whereArgs: args,
+        orderBy: 'releaseDateTs DESC', 
         limit: 1,
       );
+      
       if (maps.isNotEmpty) {
           Map<String, dynamic> jsonMap = Map.of(maps.first);
           try {

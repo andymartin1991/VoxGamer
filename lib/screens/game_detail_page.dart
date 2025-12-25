@@ -68,9 +68,14 @@ class _GameDetailPageState extends State<GameDetailPage> {
   }
 
   void _shareGame() {
-    // Generamos el enlace usando tu subdominio de GitHub Pages
-    // Esto es un dominio real y válido que tú controlas.
-    final String deepLink = 'https://andymartin1991.github.io/VoxGamer/game/${widget.game.slug}';
+    // Extraer año de la fecha (YYYY-MM-DD)
+    String yearParam = '';
+    if (widget.game.fechaLanzamiento.length >= 4) {
+      final year = widget.game.fechaLanzamiento.substring(0, 4);
+      yearParam = '?year=$year';
+    }
+
+    final String deepLink = 'https://andymartin1991.github.io/VoxGamer/game/${widget.game.slug}$yearParam';
     final String message = '🎮 ${widget.game.titulo}\n\n$deepLink';
     
     Share.share(message, subject: widget.game.titulo);

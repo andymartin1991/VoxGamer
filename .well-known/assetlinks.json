@@ -1,0 +1,11 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.andymarcial.voxgamer",
+      "sha256_cert_fingerprints":
+      ["DA:4B:15:70:F1:A9:D5:B9:80:93:23:0F:DA:FA:ED:8B:C2:6B:3C:05:83:7A:44:E0:F8:B2:B5:7B:DA:46:90:09"]
+    }
+  }
+]

@@ -3,6 +3,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart'; 
 import 'package:translator/translator.dart'; 
 import 'package:share_plus/share_plus.dart'; 
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:video_player/video_player.dart';
+import 'package:chewie/chewie.dart';
 import '../models/game.dart';
 
 class GameDetailPage extends StatefulWidget {
@@ -150,10 +153,14 @@ class _GameDetailPageState extends State<GameDetailPage> {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // Pasamos el slug para el Hero tag
-                  _GameGallerySlider(images: allImages, heroTagPrefix: widget.game.slug),
+                  // Slider con Videos e Imágenes
+                  _GameGallerySlider(
+                    images: allImages, 
+                    videos: widget.game.videos,
+                    heroTagPrefix: widget.game.slug,
+                  ),
                   
-                  // Gradiente para legibilidad
+                  // Gradiente para legibilidad (si el video no está activo)
                   const IgnorePointer(
                     child: DecoratedBox(
                       decoration: BoxDecoration(
@@ -192,7 +199,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
                   const Divider(color: Colors.white10),
                   const SizedBox(height: 24),
 
-                  // GÉNEROS Y PLATAFORMAS
+                  // GÉNEROS
                   _buildSectionTitle(l10n.filterGenre),
                   const SizedBox(height: 8),
                   Wrap(
@@ -207,7 +214,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
                   
                   const SizedBox(height: 24),
                   
-                  _buildSectionTitle(l10n.filterPlatform), // "Plataforma"
+                  // PLATAFORMAS
+                  _buildSectionTitle(l10n.filterPlatform), 
                   const SizedBox(height: 8),
                   if (widget.game.plataformas.isNotEmpty)
                     Wrap(
@@ -222,6 +230,12 @@ class _GameDetailPageState extends State<GameDetailPage> {
                         child: Text(p, style: TextStyle(color: primaryColor, fontSize: 12, fontWeight: FontWeight.bold)),
                       )).toList(),
                     ),
+
+                  // --- CRÉDITOS (Desarrolladores y Editores) ---
+                  if (widget.game.desarrolladores.isNotEmpty || widget.game.editores.isNotEmpty) ...[
+                     const SizedBox(height: 24),
+                     _buildCreditsSection(context),
+                  ],
 
                   const SizedBox(height: 32),
 
@@ -300,6 +314,38 @@ class _GameDetailPageState extends State<GameDetailPage> {
     );
   }
 
+  Widget _buildCreditsSection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle('Créditos'),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+             ...widget.game.desarrolladores.map((dev) => Chip(
+               avatar: const Icon(Icons.code, size: 14, color: Colors.cyanAccent),
+               label: Text(dev, style: const TextStyle(fontSize: 12, color: Colors.cyanAccent)),
+               backgroundColor: Colors.cyan.withOpacity(0.1),
+               side: BorderSide(color: Colors.cyan.withOpacity(0.3)),
+               padding: EdgeInsets.zero,
+               visualDensity: VisualDensity.compact,
+             )),
+             ...widget.game.editores.map((pub) => Chip(
+               avatar: const Icon(Icons.business, size: 14, color: Colors.purpleAccent),
+               label: Text(pub, style: const TextStyle(fontSize: 12, color: Colors.purpleAccent)),
+               backgroundColor: Colors.deepPurple.withOpacity(0.1),
+               side: BorderSide(color: Colors.deepPurple.withOpacity(0.3)),
+               padding: EdgeInsets.zero,
+               visualDensity: VisualDensity.compact,
+             )),
+          ],
+        )
+      ],
+    );
+  }
+
   Widget _buildSectionTitle(String title) {
     return Text(
       title.toUpperCase(),
@@ -354,9 +400,14 @@ class _GameDetailPageState extends State<GameDetailPage> {
 
 class _GameGallerySlider extends StatefulWidget {
   final List<String> images;
-  final String heroTagPrefix; // Nuevo parámetro
+  final List<Video> videos;
+  final String heroTagPrefix;
 
-  const _GameGallerySlider({required this.images, required this.heroTagPrefix});
+  const _GameGallerySlider({
+    required this.images,
+    required this.videos,
+    required this.heroTagPrefix,
+  });
 
   @override
   State<_GameGallerySlider> createState() => _GameGallerySliderState();
@@ -367,22 +418,40 @@ class _GameGallerySliderState extends State<_GameGallerySlider> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.images.isEmpty) return Container(color: const Color(0xFF151921));
+    final totalCount = widget.videos.length + widget.images.length;
+
+    if (totalCount == 0) return Container(color: const Color(0xFF151921));
 
     return Stack(
       children: [
         PageView.builder(
-          itemCount: widget.images.length,
+          itemCount: totalCount,
           onPageChanged: (index) => setState(() => _currentIndex = index),
           itemBuilder: (context, index) {
-            final imageWidget = Image.network(
-              widget.images[index],
+            
+            // --- MOSTRAR VIDEO ---
+            if (index < widget.videos.length) {
+              final video = widget.videos[index];
+              return _InAppVideoPlayer(
+                key: ValueKey(video.url), // Para reciclar correctamente
+                videoUrl: video.url, 
+                thumbnailUrl: video.thumbnail,
+              );
+            }
+
+            // --- MOSTRAR IMÁGENES ---
+            final imgIndex = index - widget.videos.length;
+            final imageUrl = widget.images[imgIndex];
+            
+            final imageWidget = CachedNetworkImage(
+              imageUrl: imageUrl,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(color: const Color(0xFF151921)),
+              placeholder: (context, url) => Container(color: const Color(0xFF151921)),
+              errorWidget: (_, __, ___) => Container(color: const Color(0xFF151921)),
             );
 
-            // APLICAMOS HERO SOLO A LA PRIMERA IMAGEN
-            if (index == 0) {
+            // HERO SOLO EN LA PRIMERA IMAGEN
+            if (imgIndex == 0) {
               return Hero(
                 tag: 'game_img_${widget.heroTagPrefix}',
                 child: imageWidget,
@@ -391,27 +460,160 @@ class _GameGallerySliderState extends State<_GameGallerySlider> {
             return imageWidget;
           },
         ),
-        if (widget.images.length > 1)
+        
+        // Paginador (Puntos)
+        if (totalCount > 1)
           Positioned(
-            bottom: 40, 
+            bottom: 16, 
             left: 0,
             right: 0,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: widget.images.take(15).toList().asMap().entries.map((entry) { 
+              children: List.generate(totalCount > 15 ? 15 : totalCount, (i) {
+                final isActive = i == _currentIndex;
+                final isVideo = i < widget.videos.length;
+                
                 return Container(
-                  width: 6.0,
+                  width: isActive ? 12.0 : 6.0,
                   height: 6.0,
                   margin: const EdgeInsets.symmetric(horizontal: 3.0),
                   decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withOpacity(_currentIndex == entry.key ? 0.9 : 0.3),
+                    borderRadius: BorderRadius.circular(3),
+                    color: isVideo 
+                        ? (isActive ? Colors.redAccent : Colors.redAccent.withOpacity(0.5)) 
+                        : (isActive ? Colors.white : Colors.white.withOpacity(0.3)),
                   ),
                 );
-              }).toList(),
+              }),
             ),
           ),
       ],
+    );
+  }
+}
+
+class _InAppVideoPlayer extends StatefulWidget {
+  final String videoUrl;
+  final String thumbnailUrl;
+
+  const _InAppVideoPlayer({super.key, required this.videoUrl, required this.thumbnailUrl});
+
+  @override
+  State<_InAppVideoPlayer> createState() => _InAppVideoPlayerState();
+}
+
+class _InAppVideoPlayerState extends State<_InAppVideoPlayer> {
+  VideoPlayerController? _videoController;
+  ChewieController? _chewieController;
+  bool _isPlaying = false;
+  bool _isInitializing = false;
+  String? _errorMessage;
+
+  Future<void> _initializePlayer() async {
+    setState(() {
+      _isInitializing = true;
+      _errorMessage = null;
+    });
+
+    try {
+      _videoController = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+      await _videoController!.initialize();
+
+      _chewieController = ChewieController(
+        videoPlayerController: _videoController!,
+        autoPlay: true,
+        looping: false,
+        aspectRatio: _videoController!.value.aspectRatio,
+        errorBuilder: (context, errorMessage) {
+          return Center(child: Text(errorMessage, style: const TextStyle(color: Colors.white)));
+        },
+        materialProgressColors: ChewieProgressColors(
+          playedColor: Colors.redAccent,
+          handleColor: Colors.red,
+          backgroundColor: Colors.grey,
+          bufferedColor: Colors.white24,
+        ),
+      );
+
+      if (mounted) {
+        setState(() {
+          _isPlaying = true;
+          _isInitializing = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+          _errorMessage = "No se pudo reproducir el video";
+        });
+      }
+      debugPrint("Error inicializando video: $e");
+    }
+  }
+
+  @override
+  void dispose() {
+    _videoController?.dispose();
+    _chewieController?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isPlaying && _chewieController != null) {
+      return Chewie(controller: _chewieController!);
+    }
+
+    return GestureDetector(
+      onTap: _isInitializing ? null : _initializePlayer,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CachedNetworkImage(
+            imageUrl: widget.thumbnailUrl,
+            fit: BoxFit.cover,
+            errorWidget: (_, __, ___) => Container(color: Colors.black),
+          ),
+          Container(color: Colors.black38), // Overlay
+          
+          Center(
+            child: _isInitializing
+                ? const CircularProgressIndicator(color: Colors.redAccent)
+                : Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                      boxShadow: [
+                        BoxShadow(color: Theme.of(context).colorScheme.primary.withOpacity(0.5), blurRadius: 20, spreadRadius: 2)
+                      ]
+                    ),
+                    child: const Icon(Icons.play_arrow, color: Colors.white, size: 40),
+                  ),
+          ),
+          
+          if (!_isInitializing)
+            const Positioned(
+              bottom: 40,
+              left: 10,
+              right: 10,
+              child: Text(
+                "VER TRAILER",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white, 
+                  fontWeight: FontWeight.bold,
+                  shadows: [Shadow(color: Colors.black, blurRadius: 5)],
+                ),
+              ),
+            ),
+            
+          if (_errorMessage != null)
+             Center(child: Container(color: Colors.black54, padding: const EdgeInsets.all(8), child: Text(_errorMessage!, style: const TextStyle(color: Colors.red))))
+        ],
+      ),
     );
   }
 }

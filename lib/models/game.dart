@@ -3,7 +3,7 @@
 class Game {
   final String slug;
   final String titulo;
-  final String tipo; // Nuevo campo: "game" o "dlc"
+  final String tipo; // "game" o "dlc"
   final String descripcionCorta;
   final String fechaLanzamiento;
   final String? storage;
@@ -14,6 +14,11 @@ class Game {
   final Idiomas idiomas;
   final int? metacritic;
   final List<Tienda> tiendas;
+  
+  // Nuevos campos
+  final List<Video> videos;
+  final List<String> desarrolladores;
+  final List<String> editores;
 
   // Campos calculados para búsqueda y ordenamiento
   late final String cleanTitle;
@@ -33,6 +38,9 @@ class Game {
     required this.idiomas,
     this.metacritic,
     required this.tiendas,
+    required this.videos,
+    required this.desarrolladores,
+    required this.editores,
   }) {
     cleanTitle = normalize(titulo);
     releaseDateTs = _parseDate(fechaLanzamiento);
@@ -42,7 +50,7 @@ class Game {
     return Game(
       slug: json['slug'] ?? '',
       titulo: json['titulo'] ?? 'Sin título',
-      tipo: json['tipo'] ?? 'game', // Valor por defecto
+      tipo: json['tipo'] ?? 'game',
       descripcionCorta: _cleanDescription(json['descripcion_corta']),
       fechaLanzamiento: json['fecha_lanzamiento'] ?? '',
       storage: json['storage'],
@@ -56,6 +64,12 @@ class Game {
               ?.map((tiendaJson) => Tienda.fromJson(tiendaJson))
               .toList() ??
           [],
+      videos: (json['videos'] as List<dynamic>?)
+              ?.map((videoJson) => Video.fromJson(videoJson))
+              .toList() ??
+          [],
+      desarrolladores: List<String>.from(json['desarrolladores'] ?? []),
+      editores: List<String>.from(json['editores'] ?? []),
     );
   }
 
@@ -136,5 +150,33 @@ class Tienda {
       url: json['url'] ?? '',
       isFree: json['is_free'] ?? false,
     );
+  }
+}
+
+class Video {
+  final String titulo;
+  final String thumbnail;
+  final String url;
+
+  Video({
+    required this.titulo,
+    required this.thumbnail,
+    required this.url,
+  });
+
+  factory Video.fromJson(Map<String, dynamic> json) {
+    return Video(
+      titulo: json['titulo'] ?? '',
+      thumbnail: json['thumbnail'] ?? '',
+      url: json['url'] ?? '',
+    );
+  }
+  
+  Map<String, dynamic> toJson() {
+    return {
+      'titulo': titulo,
+      'thumbnail': thumbnail,
+      'url': url,
+    };
   }
 }

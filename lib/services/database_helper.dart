@@ -28,7 +28,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 8, 
+      version: 9, 
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -52,6 +52,9 @@ class DatabaseHelper {
       idiomas_textos TEXT, 
       metacritic INTEGER,
       tiendas TEXT,
+      videos TEXT,
+      desarrolladores TEXT,
+      editores TEXT,
       cleanTitle TEXT,
       releaseDateTs INTEGER,
       PRIMARY KEY (slug, releaseDateTs)
@@ -126,6 +129,36 @@ class DatabaseHelper {
     if (oldVersion < 8) {
       debugPrint("Upgrading DB to v8: Applying Composite Primary Key...");
       await db.execute('DROP TABLE IF EXISTS games');
+      // En v8 se creó con un esquema sin los nuevos campos
+      await db.execute('''
+        CREATE TABLE games (
+          slug TEXT,
+          titulo TEXT NOT NULL,
+          tipo TEXT DEFAULT 'game', 
+          descripcion_corta TEXT,
+          fecha_lanzamiento TEXT,
+          storage TEXT,
+          generos TEXT,
+          plataformas TEXT,
+          img_principal TEXT,
+          galeria TEXT,
+          idiomas TEXT,
+          idiomas_voces TEXT, 
+          idiomas_textos TEXT, 
+          metacritic INTEGER,
+          tiendas TEXT,
+          cleanTitle TEXT,
+          releaseDateTs INTEGER,
+          PRIMARY KEY (slug, releaseDateTs)
+        )
+      ''');
+      await _createIndices(db);
+    }
+
+    if (oldVersion < 9) {
+      debugPrint("Upgrading DB to v9: Adding videos, developers and publishers...");
+      // Recreamos la tabla games para incluir los nuevos campos de forma limpia
+      await db.execute('DROP TABLE IF EXISTS games');
       
       await db.execute('''
         CREATE TABLE games (
@@ -144,6 +177,9 @@ class DatabaseHelper {
           idiomas_textos TEXT, 
           metacritic INTEGER,
           tiendas TEXT,
+          videos TEXT,
+          desarrolladores TEXT,
+          editores TEXT,
           cleanTitle TEXT,
           releaseDateTs INTEGER,
           PRIMARY KEY (slug, releaseDateTs)
@@ -374,6 +410,9 @@ class DatabaseHelper {
             'idiomas_textos': jsonEncode(game.idiomas.textos),
             'metacritic': game.metacritic,
             'tiendas': jsonEncode(game.tiendas.map((t) => {'tienda': t.tienda, 'id_externo': t.idExterno, 'url': t.url, 'is_free': t.isFree}).toList()),
+            'videos': jsonEncode(game.videos.map((v) => v.toJson()).toList()),
+            'desarrolladores': jsonEncode(game.desarrolladores),
+            'editores': jsonEncode(game.editores),
             'cleanTitle': game.cleanTitle,
             'releaseDateTs': game.releaseDateTs
           }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -423,6 +462,9 @@ class DatabaseHelper {
             jsonMap['galeria'] = jsonDecode(dbMap['galeria'] ?? '[]');
             jsonMap['idiomas'] = jsonDecode(dbMap['idiomas'] ?? '{}');
             jsonMap['tiendas'] = jsonDecode(dbMap['tiendas'] ?? '[]');
+            jsonMap['videos'] = jsonDecode(dbMap['videos'] ?? '[]');
+            jsonMap['desarrolladores'] = jsonDecode(dbMap['desarrolladores'] ?? '[]');
+            jsonMap['editores'] = jsonDecode(dbMap['editores'] ?? '[]');
           } catch (e) {}
           return Game.fromJson(jsonMap);
       }).toList();
@@ -459,6 +501,9 @@ class DatabaseHelper {
             jsonMap['galeria'] = jsonDecode(maps.first['galeria'] ?? '[]');
             jsonMap['idiomas'] = jsonDecode(maps.first['idiomas'] ?? '{}');
             jsonMap['tiendas'] = jsonDecode(maps.first['tiendas'] ?? '[]');
+            jsonMap['videos'] = jsonDecode(maps.first['videos'] ?? '[]');
+            jsonMap['desarrolladores'] = jsonDecode(maps.first['desarrolladores'] ?? '[]');
+            jsonMap['editores'] = jsonDecode(maps.first['editores'] ?? '[]');
           } catch (e) {}
           return Game.fromJson(jsonMap);
       }

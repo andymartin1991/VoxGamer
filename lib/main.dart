@@ -13,6 +13,8 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:app_links/app_links.dart'; 
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 import 'models/game.dart';
 import 'services/data_service.dart';
@@ -335,9 +337,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       });
     }
   }
-
-  // ... (Resto de métodos _updateCatalog, _finishSync, _setupServiceListeners, etc. sin cambios) ...
-  // Para ahorrar espacio y evitar errores, reescribo lo necesario.
 
   Future<void> _updateCatalog({bool force = false, bool forceDownload = true}) async {
     final l10n = AppLocalizations.of(context)!;
@@ -773,6 +772,24 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     );
   }
 
+  void _clearCache(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      await DefaultCacheManager().emptyCache();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Caché de imágenes limpiada')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error limpiando caché: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -801,9 +818,15 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
           actions: [
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert, color: Colors.white),
-              onSelected: (value) { if (value == 'update') _updateCatalog(); },
+              onSelected: (value) { 
+                if (value == 'update') _updateCatalog(); 
+                if (value == 'clear_cache') _clearCache(context);
+              },
               color: const Color(0xFF1E232F),
-              itemBuilder: (context) => [PopupMenuItem(value: 'update', child: Row(children: [const Icon(Icons.cloud_sync, color: Colors.blueAccent), const SizedBox(width: 8), Text(l10n?.syncQuick ?? "Actualizar", style: const TextStyle(color: Colors.white))]))],
+              itemBuilder: (context) => [
+                PopupMenuItem(value: 'update', child: Row(children: [const Icon(Icons.cloud_sync, color: Colors.blueAccent), const SizedBox(width: 8), Text(l10n?.syncQuick ?? "Actualizar", style: const TextStyle(color: Colors.white))])),
+                PopupMenuItem(value: 'clear_cache', child: Row(children: [const Icon(Icons.cleaning_services, color: Colors.orangeAccent), const SizedBox(width: 8), const Text("Limpiar Caché Imágenes", style: TextStyle(color: Colors.white))])),
+              ],
             ),
           ],
           bottom: PreferredSize(
@@ -947,7 +970,7 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
   bool _isLoading = false;
   bool _hasMore = true;
   int _page = 0;
-  final int _limit = 20;
+  final int _limit = 50; // CAMBIADO DE 20 A 50
 
   @override
   bool get wantKeepAlive => true; 
@@ -1140,11 +1163,12 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
                   child: ClipRRect( 
                     borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
                     child: game.imgPrincipal.isNotEmpty
-                        ? Image.network(
-                            game.imgPrincipal,
+                        ? CachedNetworkImage(
+                            imageUrl: game.imgPrincipal,
                             fit: BoxFit.cover,
-                            cacheWidth: 300,
-                            errorBuilder: (context, error, stackTrace) => Container(color: const Color(0xFF151921), child: const Icon(Icons.broken_image, color: Colors.grey)),
+                            memCacheWidth: 400, // Optimización de memoria
+                            errorWidget: (context, url, error) => Container(color: const Color(0xFF151921), child: const Icon(Icons.broken_image, color: Colors.grey)),
+                            placeholder: (context, url) => Container(color: const Color(0xFF151921)),
                           )
                         : Container(color: const Color(0xFF151921), child: const Icon(Icons.videogame_asset, color: Colors.grey)),
                   ),

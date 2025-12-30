@@ -11,7 +11,6 @@ class DatabaseHelper {
   static int insertDelay = 30;
   static bool turboMode = false;
 
-  // Palabras clave para filtrar contenido adulto
   static const List<String> _adultKeywords = ['%sex%', '%hentai%', '%cum%', '%porn%', '%erotic%', '%adult%'];
 
   DatabaseHelper._init();
@@ -64,7 +63,6 @@ class DatabaseHelper {
     )
     ''');
     
-    // Tabla upcoming_games COMPLETA
     await db.execute('''
     CREATE TABLE IF NOT EXISTS upcoming_games (
       slug TEXT PRIMARY KEY,
@@ -109,7 +107,6 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX IF NOT EXISTS idx_releaseDateTs ON games(releaseDateTs)');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_tipo ON games(tipo)'); 
     await db.execute('CREATE INDEX IF NOT EXISTS idx_metacritic ON games(metacritic)');
-    
     await db.execute('CREATE INDEX IF NOT EXISTS idx_upcoming_date ON upcoming_games(releaseDateTs)'); 
   }
 
@@ -122,7 +119,6 @@ class DatabaseHelper {
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 10) {
-      debugPrint("Upgrading DB to v10: Aligning upcoming_games schema with games schema...");
       await db.execute('DROP TABLE IF EXISTS upcoming_games');
       await db.execute('''
         CREATE TABLE upcoming_games (
@@ -159,13 +155,11 @@ class DatabaseHelper {
     await db.delete('upcoming_games');
     await db.delete('meta_filters');
     await db.delete('platforms_list'); 
-    debugPrint('Base de datos limpiada.');
   }
 
   Future<void> savePlatformsDedicated(List<String> platforms) async {
     if (kIsWeb) return;
     final db = await database;
-    
     await db.transaction((txn) async {
       await txn.delete('platforms_list');
       final batch = txn.batch();
@@ -340,7 +334,6 @@ class DatabaseHelper {
     const int batchSize = 200; 
     int total = games.length;
 
-    debugPrint('Iniciando inserción v4 con TurboMode dinámico...');
     await _dropIndices(db);
 
     await db.transaction((txn) async {
@@ -389,15 +382,12 @@ class DatabaseHelper {
     }
 
     await _createIndices(db);
-    debugPrint('Inserción masiva finalizada.');
   }
 
-  // --- NUEVO: Inserción de próximos juegos COMPLETA ---
   Future<void> insertUpcomingGames(List<Game> games) async {
     if (kIsWeb) return;
     final db = await database;
     
-    // Limpiamos la tabla antes de insertar lo nuevo
     await db.transaction((txn) async {
       await txn.delete('upcoming_games');
       final batch = txn.batch();
@@ -405,7 +395,7 @@ class DatabaseHelper {
         batch.insert('upcoming_games', {
           'slug': game.slug,
           'titulo': game.titulo,
-          'tipo': game.tipo, // USAMOS EL TIPO REAL
+          'tipo': game.tipo, 
           'descripcion_corta': game.descripcionCorta,
           'fecha_lanzamiento': game.fechaLanzamiento,
           'storage': game.storage,
@@ -429,20 +419,46 @@ class DatabaseHelper {
     });
   }
 
-  // --- NUEVO: Obtener próximos juegos CON FILTROS Y PAGINACIÓN ---
+  // Helper para generar condiciones OR
+  void _addMultiSelectCondition(List<String>? items, String column, List<dynamic> whereArgs, Function(String) addClause, {bool exact = false}) {
+    if (items == null || items.isEmpty || (items.length == 1 && items.first == 'Cualquiera')) return;
+    
+    final conditions = <String>[];
+    for (var item in items) {
+      if (item == 'Cualquiera') continue;
+      if (exact) {
+        conditions.add('$column = ?');
+        whereArgs.add(item);
+      } else {
+        conditions.add('$column LIKE ?');
+        // Para arrays JSON, buscamos la subcadena
+        if (column == 'fecha_lanzamiento') {
+           whereArgs.add('$item%');
+        } else {
+           whereArgs.add('%"$item"%'); // Hack simple para arrays JSON como ["Accion", "RPG"]
+        }
+      }
+    }
+    
+    if (conditions.isNotEmpty) {
+      addClause('(${conditions.join(' OR ')})');
+    }
+  }
+
+  // --- NUEVO: SOPORTE MULTI-SELECCIÓN ---
   Future<List<Game>> getUpcomingGames({
     int limit = 50,
     int offset = 0,
     String? query,
-    String? voiceLanguage,
-    String? textLanguage,
-    String? year,
-    String? genre,
-    String? platform,
+    List<String>? voiceLanguages, // Lista
+    List<String>? textLanguages, // Lista
+    List<String>? years, // Lista
+    List<String>? genres, // Lista
+    List<String>? platforms, // Lista
     String? tipo,
     String sortBy = 'date',
     bool isAdult = true,
-    bool fastMode = false // OPTIMIZACIÓN
+    bool fastMode = false 
   }) async {
     if (kIsWeb) return [];
     final db = await database;
@@ -450,24 +466,30 @@ class DatabaseHelper {
       String? whereClause;
       List<dynamic> whereArgs = [];
 
-      void addCondition(String clause, dynamic arg) { if (whereClause != null) whereClause = '$whereClause AND $clause'; else whereClause = clause; whereArgs.add(arg); }
+      void addCondition(String clause) { 
+        if (whereClause != null) whereClause = '$whereClause AND $clause'; 
+        else whereClause = clause; 
+      }
 
       if (query != null && query.isNotEmpty) {
         String cleanQuery = Game.normalize(query);
-        addCondition('cleanTitle LIKE ?', '%$cleanQuery%');
+        addCondition('cleanTitle LIKE ?');
+        whereArgs.add('%$cleanQuery%');
       }
 
       if (!isAdult) {
         for (var keyword in _adultKeywords) {
-          addCondition('lower(titulo) NOT LIKE ?', keyword);
+          addCondition('lower(titulo) NOT LIKE ?');
+          whereArgs.add(keyword);
         }
       }
 
-      if (voiceLanguage != null && voiceLanguage != 'Cualquiera') addCondition('idiomas_voces LIKE ?', '%${jsonEncode(voiceLanguage)}%');
-      if (textLanguage != null && textLanguage != 'Cualquiera') addCondition('idiomas_textos LIKE ?', '%${jsonEncode(textLanguage)}%');
-      if (year != null && year != 'Cualquiera') addCondition('fecha_lanzamiento LIKE ?', '$year%');
-      if (genre != null && genre != 'Cualquiera') addCondition('generos LIKE ?', '%"$genre"%'); 
-      if (platform != null && platform != 'Cualquiera') addCondition('plataformas LIKE ?', '%"$platform"%');
+      // Aplicar filtros multi-selección
+      _addMultiSelectCondition(voiceLanguages, 'idiomas_voces', whereArgs, addCondition);
+      _addMultiSelectCondition(textLanguages, 'idiomas_textos', whereArgs, addCondition);
+      _addMultiSelectCondition(years, 'fecha_lanzamiento', whereArgs, addCondition);
+      _addMultiSelectCondition(genres, 'generos', whereArgs, addCondition);
+      _addMultiSelectCondition(platforms, 'plataformas', whereArgs, addCondition);
 
       String orderBy = 'CASE WHEN releaseDateTs = 0 THEN 1 ELSE 0 END ASC, releaseDateTs ASC';
       if (sortBy == 'score') {
@@ -491,7 +513,6 @@ class DatabaseHelper {
       return maps.map((dbMap) {
           Map<String, dynamic> jsonMap = Map.of(dbMap);
           try {
-            // OPTIMIZACIÓN: Solo parseamos lo necesario si estamos en fastMode
             if (!fastMode) {
               jsonMap['generos'] = jsonDecode(dbMap['generos'] ?? '[]');
               jsonMap['galeria'] = jsonDecode(dbMap['galeria'] ?? '[]');
@@ -501,7 +522,6 @@ class DatabaseHelper {
               jsonMap['desarrolladores'] = jsonDecode(dbMap['desarrolladores'] ?? '[]');
               jsonMap['editores'] = jsonDecode(dbMap['editores'] ?? '[]');
             }
-            // Plataformas siempre se necesita para las tarjetas
             jsonMap['plataformas'] = jsonDecode(dbMap['plataformas'] ?? '[]');
           } catch (e) {
             debugPrint("Error parseando JSON en upcoming: $e");
@@ -514,44 +534,55 @@ class DatabaseHelper {
     }
   }
 
+  // --- NUEVO: SOPORTE MULTI-SELECCIÓN EN JUEGOS ---
   Future<List<Game>> getGames({
     int limit = 20, 
     int offset = 0, 
     String? query, 
-    String? voiceLanguage, 
-    String? textLanguage, 
-    String? year, 
-    String? genre, 
-    String? platform, 
+    List<String>? voiceLanguages, // Lista
+    List<String>? textLanguages, // Lista
+    List<String>? years, // Lista
+    List<String>? genres, // Lista
+    List<String>? platforms, // Lista
     String? tipo, 
     String sortBy = 'date', 
     bool isAdult = true,
-    bool fastMode = false // OPTIMIZACIÓN
+    bool fastMode = false 
   }) async {
     if (kIsWeb) return [];
     final db = await database;
     String? whereClause;
     List<dynamic> whereArgs = [];
 
-    void addCondition(String clause, dynamic arg) { if (whereClause != null) whereClause = '$whereClause AND $clause'; else whereClause = clause; whereArgs.add(arg); }
+    void addCondition(String clause) { 
+        if (whereClause != null) whereClause = '$whereClause AND $clause'; 
+        else whereClause = clause; 
+    }
 
     if (query != null && query.isNotEmpty) {
       String cleanQuery = Game.normalize(query);
-      addCondition('cleanTitle LIKE ?', '%$cleanQuery%');
+      addCondition('cleanTitle LIKE ?');
+      whereArgs.add('%$cleanQuery%');
     }
 
     if (!isAdult) {
       for (var keyword in _adultKeywords) {
-        addCondition('lower(titulo) NOT LIKE ?', keyword);
+        addCondition('lower(titulo) NOT LIKE ?');
+        whereArgs.add(keyword);
       }
     }
 
-    if (tipo != null) addCondition('tipo = ?', tipo);
-    if (voiceLanguage != null && voiceLanguage != 'Cualquiera') addCondition('idiomas_voces LIKE ?', '%${jsonEncode(voiceLanguage)}%');
-    if (textLanguage != null && textLanguage != 'Cualquiera') addCondition('idiomas_textos LIKE ?', '%${jsonEncode(textLanguage)}%');
-    if (year != null && year != 'Cualquiera') addCondition('fecha_lanzamiento LIKE ?', '$year%');
-    if (genre != null && genre != 'Cualquiera') addCondition('generos LIKE ?', '%"$genre"%'); 
-    if (platform != null && platform != 'Cualquiera') addCondition('plataformas LIKE ?', '%"$platform"%');
+    if (tipo != null) {
+        addCondition('tipo = ?');
+        whereArgs.add(tipo);
+    }
+
+    // Filtros Multi-selección
+    _addMultiSelectCondition(voiceLanguages, 'idiomas_voces', whereArgs, addCondition);
+    _addMultiSelectCondition(textLanguages, 'idiomas_textos', whereArgs, addCondition);
+    _addMultiSelectCondition(years, 'fecha_lanzamiento', whereArgs, addCondition);
+    _addMultiSelectCondition(genres, 'generos', whereArgs, addCondition);
+    _addMultiSelectCondition(platforms, 'plataformas', whereArgs, addCondition);
 
     String orderByClause = 'releaseDateTs DESC';
     if (sortBy == 'score') orderByClause = 'metacritic DESC, releaseDateTs DESC'; 
@@ -590,7 +621,6 @@ class DatabaseHelper {
     } catch (e) { return []; }
   }
 
-  // --- ACTUALIZADO: Acepta un 'year' opcional para filtrar duplicados ---
   Future<Game?> getGameBySlug(String slug, {String? year}) async {
     if (kIsWeb) return null;
     final db = await database;
@@ -603,7 +633,6 @@ class DatabaseHelper {
         args.add('$year%'); 
       }
 
-      // 1. Buscamos primero en la tabla principal 'games'
       List<Map<String, dynamic>> maps = await db.query(
         'games',
         where: whereClause,
@@ -612,7 +641,6 @@ class DatabaseHelper {
         limit: 1,
       );
       
-      // 2. Si no está en 'games', buscamos en 'upcoming_games'
       if (maps.isEmpty) {
          maps = await db.query(
           'upcoming_games',

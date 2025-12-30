@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
+import 'dart:ui'; // Necesario para ImageFilter
 import '../models/game.dart';
 import '../services/data_service.dart';
 
@@ -35,7 +36,6 @@ class _GameDetailPageState extends State<GameDetailPage> {
   }
 
   Future<void> _loadFullGameDetails() async {
-    // Intentamos cargar los detalles completos si venimos de una lista optimizada
     String? year;
     if (_game.fechaLanzamiento.length >= 4) {
       year = _game.fechaLanzamiento.substring(0, 4);
@@ -136,15 +136,16 @@ class _GameDetailPageState extends State<GameDetailPage> {
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
-            expandedHeight: 300.0,
+            expandedHeight: 320.0, // Un poco más alto para lucir la imagen
             pinned: true,
             backgroundColor: theme.scaffoldBackgroundColor,
             leading: IconButton(
               icon: Container(
                 padding: const EdgeInsets.all(8),
-                decoration: const BoxDecoration(
-                  color: Colors.black45,
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.6), // Más oscuro para contraste
                   shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white24, width: 1), // Borde sutil
                 ),
                 child: const Icon(Icons.arrow_back, size: 20),
               ),
@@ -154,9 +155,10 @@ class _GameDetailPageState extends State<GameDetailPage> {
               IconButton(
                 icon: Container(
                   padding: const EdgeInsets.all(8),
-                  decoration: const BoxDecoration(
-                    color: Colors.black45,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.6),
                     shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white24, width: 1),
                   ),
                   child: const Icon(Icons.share, size: 20, color: Colors.white),
                 ),
@@ -170,9 +172,12 @@ class _GameDetailPageState extends State<GameDetailPage> {
               title: Text(
                 _game.titulo,
                 style: const TextStyle(
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w900, // Fuente más gruesa
                   fontSize: 18,
-                  shadows: [Shadow(color: Colors.black, blurRadius: 10)],
+                  shadows: [
+                    Shadow(color: Colors.black, blurRadius: 15, offset: Offset(0, 2)),
+                    Shadow(color: Colors.black, blurRadius: 5), // Doble sombra para legibilidad
+                  ],
                 ),
               ),
               background: Stack(
@@ -184,14 +189,21 @@ class _GameDetailPageState extends State<GameDetailPage> {
                     heroTagPrefix: _game.slug,
                     onVideoTap: (url) => _launchUrlInBrowser(context, url),
                   ),
+                  // Gradiente Cinematico Mejorado
                   const IgnorePointer(
                     child: DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
-                          colors: [Colors.black26, Colors.transparent, Colors.black87],
-                          stops: [0.0, 0.5, 1.0],
+                          colors: [
+                            Colors.black45, 
+                            Colors.transparent, 
+                            Colors.transparent,
+                            Colors.black87,
+                            Colors.black
+                          ],
+                          stops: [0.0, 0.3, 0.5, 0.8, 1.0],
                         ),
                       ),
                     ),
@@ -207,47 +219,44 @@ class _GameDetailPageState extends State<GameDetailPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildStatItem(Icons.calendar_today, l10n.release, _game.fechaLanzamiento.isNotEmpty ? _game.fechaLanzamiento : 'N/A'),
-                      if (_game.metacritic != null)
-                        _buildStatItem(Icons.star, l10n.metascore, _game.metacritic.toString(), color: _getScoreColor(_game.metacritic!)),
-                      _buildStatItem(Icons.sd_storage, l10n.storage, _game.storage ?? 'N/A'),
-                    ],
+                  // STATS ROW CON GLASSMORPHISM
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.03),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white.withOpacity(0.05)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildStatItem(Icons.calendar_today, l10n.release, _game.fechaLanzamiento.isNotEmpty ? _game.fechaLanzamiento : 'N/A'),
+                        _buildVerticalDivider(),
+                        if (_game.metacritic != null)
+                          _buildStatItem(Icons.star, l10n.metascore, _game.metacritic.toString(), color: _getScoreColor(_game.metacritic!)),
+                        if (_game.metacritic != null) _buildVerticalDivider(),
+                        _buildStatItem(Icons.sd_storage, l10n.storage, _game.storage ?? 'N/A'),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 24),
-                  const Divider(color: Colors.white10),
-                  const SizedBox(height: 24),
+                  
+                  const SizedBox(height: 32),
 
                   _buildSectionTitle(l10n.filterGenre),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   Wrap(
-                    spacing: 8, runSpacing: 8,
-                    children: _game.generos.map((g) => Chip(
-                      label: Text(g, style: const TextStyle(fontSize: 12)),
-                      backgroundColor: const Color(0xFF1E232F),
-                      side: BorderSide.none,
-                      padding: EdgeInsets.zero,
-                    )).toList(),
+                    spacing: 10, runSpacing: 10,
+                    children: _game.generos.map((g) => _buildNeonChip(g, primaryColor)).toList(),
                   ),
                   
                   const SizedBox(height: 24),
                   
                   _buildSectionTitle(l10n.filterPlatform), 
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   if (_game.plataformas.isNotEmpty)
                     Wrap(
                       spacing: 8, runSpacing: 8,
-                      children: _game.plataformas.map((p) => Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: primaryColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: primaryColor.withOpacity(0.3)),
-                        ),
-                        child: Text(p, style: TextStyle(color: primaryColor, fontSize: 12, fontWeight: FontWeight.bold)),
-                      )).toList(),
+                      children: _game.plataformas.map((p) => _buildPlatformChip(p)).toList(),
                     ),
 
                   if (_game.desarrolladores.isNotEmpty || _game.editores.isNotEmpty) ...[
@@ -257,25 +266,46 @@ class _GameDetailPageState extends State<GameDetailPage> {
 
                   const SizedBox(height: 32),
 
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _buildSectionTitle(l10n.aboutGame),
-                      TextButton.icon(
-                        onPressed: _isTranslating ? null : _handleTranslation,
-                        icon: _isTranslating 
-                            ? SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: primaryColor))
-                            : Icon(_showingTranslation ? Icons.undo : Icons.translate, size: 16),
-                        label: Text(_showingTranslation ? l10n.viewOriginal : l10n.btnTranslate),
-                      ),
-                    ],
-                  ),
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    child: Text(
-                      descriptionToShow.isNotEmpty ? descriptionToShow : "Sin descripción disponible.", 
-                      key: ValueKey(descriptionToShow),
-                      style: const TextStyle(fontSize: 15, height: 1.6, color: Color(0xFFE0E0E0)),
+                  // SECCIÓN DESCRIPCIÓN
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E232F).withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: Colors.white.withOpacity(0.05)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            _buildSectionTitle(l10n.aboutGame),
+                            TextButton.icon(
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                backgroundColor: primaryColor.withOpacity(0.1),
+                                foregroundColor: primaryColor,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                              ),
+                              onPressed: _isTranslating ? null : _handleTranslation,
+                              icon: _isTranslating 
+                                  ? SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: primaryColor))
+                                  : Icon(_showingTranslation ? Icons.undo : Icons.translate, size: 16),
+                              label: Text(_showingTranslation ? l10n.viewOriginal : l10n.btnTranslate, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          child: Text(
+                            descriptionToShow.isNotEmpty ? descriptionToShow : "Sin descripción disponible.", 
+                            key: ValueKey(descriptionToShow),
+                            style: TextStyle(fontSize: 15, height: 1.6, color: Colors.grey.shade300),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
 
@@ -295,7 +325,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
                       physics: const NeverScrollableScrollPhysics(),
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 2,
-                        childAspectRatio: 3.5,
+                        childAspectRatio: 3.2,
                         crossAxisSpacing: 12,
                         mainAxisSpacing: 12,
                       ),
@@ -306,17 +336,22 @@ class _GameDetailPageState extends State<GameDetailPage> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF1E232F),
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              side: BorderSide(color: Colors.white.withOpacity(0.1))
+                            ),
+                            elevation: 4,
+                            shadowColor: Colors.black45,
                           ),
                           onPressed: () => _launchUrlInBrowser(context, tienda.url),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(Icons.shopping_cart, size: 16),
-                              const SizedBox(width: 8),
-                              Expanded(child: Text(tienda.tienda, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13))),
+                              const Icon(Icons.shopping_cart, size: 18, color: Colors.grey),
+                              const SizedBox(width: 10),
+                              Expanded(child: Text(tienda.tienda, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold))),
+                              const Icon(Icons.open_in_new, size: 14, color: Colors.grey),
                             ],
                           ),
                         );
@@ -333,6 +368,54 @@ class _GameDetailPageState extends State<GameDetailPage> {
     );
   }
 
+  Widget _buildVerticalDivider() {
+    return Container(
+      height: 30,
+      width: 1,
+      color: Colors.white.withOpacity(0.1),
+    );
+  }
+
+  // CHIP NEON CON ESTILO CYBERPUNK
+  Widget _buildNeonChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: color.withOpacity(0.6), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.15),
+            blurRadius: 8,
+            spreadRadius: 0,
+          )
+        ],
+      ),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          color: color.withOpacity(0.9), 
+          fontSize: 11, 
+          fontWeight: FontWeight.bold, 
+          letterSpacing: 0.5
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlatformChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2A2E3B),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
+    );
+  }
+
   Widget _buildCreditsSection(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Column(
@@ -345,19 +428,19 @@ class _GameDetailPageState extends State<GameDetailPage> {
           runSpacing: 8,
           children: [
              ..._game.desarrolladores.map((dev) => Chip(
-               avatar: const Icon(Icons.code, size: 14, color: Colors.cyanAccent),
+               avatar: const CircleAvatar(backgroundColor: Colors.transparent, child: Icon(Icons.code, size: 14, color: Colors.cyanAccent)),
                label: Text(dev, style: const TextStyle(fontSize: 12, color: Colors.cyanAccent)),
-               backgroundColor: Colors.cyan.withOpacity(0.1),
-               side: BorderSide(color: Colors.cyan.withOpacity(0.3)),
-               padding: EdgeInsets.zero,
+               backgroundColor: const Color(0xFF1A2733),
+               shape: const StadiumBorder(side: BorderSide(color: Colors.cyanAccent, width: 0.5)),
+               padding: const EdgeInsets.symmetric(horizontal: 4),
                visualDensity: VisualDensity.compact,
              )),
              ..._game.editores.map((pub) => Chip(
-               avatar: const Icon(Icons.business, size: 14, color: Colors.purpleAccent),
+               avatar: const CircleAvatar(backgroundColor: Colors.transparent, child: Icon(Icons.business, size: 14, color: Colors.purpleAccent)),
                label: Text(pub, style: const TextStyle(fontSize: 12, color: Colors.purpleAccent)),
-               backgroundColor: Colors.deepPurple.withOpacity(0.1),
-               side: BorderSide(color: Colors.deepPurple.withOpacity(0.3)),
-               padding: EdgeInsets.zero,
+               backgroundColor: const Color(0xFF251A33),
+               shape: const StadiumBorder(side: BorderSide(color: Colors.purpleAccent, width: 0.5)),
+               padding: const EdgeInsets.symmetric(horizontal: 4),
                visualDensity: VisualDensity.compact,
              )),
           ],
@@ -370,21 +453,32 @@ class _GameDetailPageState extends State<GameDetailPage> {
     return Text(
       title.toUpperCase(),
       style: TextStyle(
-        fontSize: 13, 
+        fontSize: 12, 
         fontWeight: FontWeight.w900, 
         color: Colors.grey.shade500, 
-        letterSpacing: 1.1
+        letterSpacing: 1.5 // Más espaciado para toque premium
       ),
     );
   }
 
+  // STAT ITEM AHORA ES MÁS LIMPIO Y GRANDE
   Widget _buildStatItem(IconData icon, String label, String value, {Color? color}) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: color ?? Colors.grey.shade400, size: 24),
-        const SizedBox(height: 4),
-        Text(value, style: TextStyle(color: color ?? Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-        Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
+        Icon(icon, color: color ?? Colors.grey.shade400, size: 20),
+        const SizedBox(height: 6),
+        Text(
+          value, 
+          style: TextStyle(
+            color: color ?? Colors.white, 
+            fontWeight: FontWeight.bold, 
+            fontSize: 15,
+            shadows: color != null ? [BoxShadow(color: color.withOpacity(0.6), blurRadius: 8)] : null
+          )
+        ),
+        const SizedBox(height: 2),
+        Text(label.toUpperCase(), style: TextStyle(color: Colors.grey.shade600, fontSize: 9, fontWeight: FontWeight.bold)),
       ],
     );
   }
@@ -399,17 +493,17 @@ class _GameDetailPageState extends State<GameDetailPage> {
       children: allLanguages.map((lang) {
         final hasAudio = _game.idiomas.voces.any((v) => v.trim().toLowerCase() == lang.trim().toLowerCase());
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: hasAudio ? Theme.of(context).colorScheme.primary.withOpacity(0.15) : const Color(0xFF1E232F),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: hasAudio ? Theme.of(context).colorScheme.primary.withOpacity(0.5) : Colors.transparent),
+            color: hasAudio ? Theme.of(context).colorScheme.primary.withOpacity(0.1) : const Color(0xFF1E232F),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: hasAudio ? Theme.of(context).colorScheme.primary.withOpacity(0.3) : Colors.white10),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(lang, style: TextStyle(fontSize: 12, color: hasAudio ? Theme.of(context).colorScheme.primary : Colors.grey.shade300)),
-              if (hasAudio) ...[const SizedBox(width: 4), Icon(Icons.mic, size: 10, color: Theme.of(context).colorScheme.primary)]
+              Text(lang, style: TextStyle(fontSize: 12, fontWeight: hasAudio ? FontWeight.bold : FontWeight.normal, color: hasAudio ? Theme.of(context).colorScheme.primary : Colors.grey.shade400)),
+              if (hasAudio) ...[const SizedBox(width: 6), Icon(Icons.mic, size: 12, color: Theme.of(context).colorScheme.primary)]
             ],
           ),
         );
@@ -484,7 +578,7 @@ class _GameGallerySliderState extends State<_GameGallerySlider> {
         
         if (totalCount > 1)
           Positioned(
-            bottom: 16, 
+            bottom: 30, // Subido un poco para no chocar con el gradiente oscuro
             left: 0,
             right: 0,
             child: Row(
@@ -493,8 +587,9 @@ class _GameGallerySliderState extends State<_GameGallerySlider> {
                 final isActive = i == _currentIndex;
                 final isVideo = i < widget.videos.length;
                 
-                return Container(
-                  width: isActive ? 12.0 : 6.0,
+                return AnimatedContainer( // ANIMACIÓN DE PUNTOS
+                  duration: const Duration(milliseconds: 300),
+                  width: isActive ? 24.0 : 6.0,
                   height: 6.0,
                   margin: const EdgeInsets.symmetric(horizontal: 3.0),
                   decoration: BoxDecoration(
@@ -502,6 +597,7 @@ class _GameGallerySliderState extends State<_GameGallerySlider> {
                     color: isVideo 
                         ? (isActive ? Colors.redAccent : Colors.redAccent.withOpacity(0.5)) 
                         : (isActive ? Colors.white : Colors.white.withOpacity(0.3)),
+                    boxShadow: isActive ? [BoxShadow(color: (isVideo ? Colors.redAccent : Colors.white).withOpacity(0.5), blurRadius: 8)] : null,
                   ),
                 );
               }),
@@ -601,23 +697,41 @@ class _InAppVideoPlayerState extends State<_InAppVideoPlayer> {
           Center(
             child: _isInitializing
                 ? const CircularProgressIndicator(color: Colors.redAccent)
-                : Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                      boxShadow: [
-                        BoxShadow(color: Theme.of(context).colorScheme.primary.withOpacity(0.5), blurRadius: 20, spreadRadius: 2)
-                      ]
-                    ),
-                    child: const Icon(Icons.play_arrow, color: Colors.white, size: 40),
+                : Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Sombra (hack para que se vea fuera del clip)
+                      Container(
+                        width: 72, height: 72,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(color: Theme.of(context).colorScheme.primary.withOpacity(0.3), blurRadius: 20, spreadRadius: 2)
+                          ],
+                        ),
+                      ),
+                      // Efecto cristal
+                      ClipOval(
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.1),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white54, width: 1.5),
+                            ),
+                            child: const Icon(Icons.play_arrow, color: Colors.white, size: 40),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
           ),
           
           if (!_isInitializing)
             Positioned(
-              bottom: 40,
+              bottom: 60, // Subido para no chocar con indicador
               left: 10,
               right: 10,
               child: Text(
@@ -626,7 +740,9 @@ class _InAppVideoPlayerState extends State<_InAppVideoPlayer> {
                 style: const TextStyle(
                   color: Colors.white, 
                   fontWeight: FontWeight.bold,
-                  shadows: [Shadow(color: Colors.black, blurRadius: 5)],
+                  letterSpacing: 2.0,
+                  fontSize: 12,
+                  shadows: [Shadow(color: Colors.black, blurRadius: 10)],
                 ),
               ),
             ),

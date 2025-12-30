@@ -110,22 +110,39 @@ class VoxGamerApp extends StatelessWidget {
           iconTheme: IconThemeData(color: Colors.white),
         ),
         tabBarTheme: TabBarTheme(
-          labelColor: primaryNeon,
+          labelColor: Colors.white,
           unselectedLabelColor: Colors.grey,
-          indicatorColor: primaryNeon,
+          indicatorSize: TabBarIndicatorSize.tab,
+          indicator: BoxDecoration(
+            borderRadius: BorderRadius.circular(50),
+            gradient: LinearGradient(
+              colors: [primaryNeon, primaryNeon.withOpacity(0.7)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: primaryNeon.withOpacity(0.4),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
           dividerColor: Colors.transparent, 
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
         ),
         cardTheme: CardTheme(
           color: cardBg,
           elevation: 8,
-          shadowColor: primaryNeon.withOpacity(0.3),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shadowColor: primaryNeon.withOpacity(0.1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), 
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: const Color(0xFF1E232F),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             borderSide: BorderSide.none,
           ),
           hintStyle: const TextStyle(color: Colors.grey),
@@ -149,7 +166,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   final DataService _dataService = DataService();
   final TextEditingController _searchController = TextEditingController();
   
-  // CONTROLADOR DE PESTAÑAS EXPLÍCITO
   late TabController _tabController;
   
   final GlobalKey<GameListTabState> _gamesTabKey = GlobalKey();
@@ -172,24 +188,24 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   StreamSubscription? _successSub;
   StreamSubscription? _errorSub;
 
-  String _selectedVoiceLanguage = 'Cualquiera';
-  String _selectedTextLanguage = 'Cualquiera';
-  String _selectedYear = 'Cualquiera';
-  String _selectedGenre = 'Cualquiera';
-  String _selectedPlatform = 'Cualquiera'; 
+  List<String> _selectedVoiceLanguages = [];
+  List<String> _selectedTextLanguages = [];
+  List<String> _selectedYears = [];
+  List<String> _selectedGenres = [];
+  List<String> _selectedPlatforms = []; 
   String _selectedSort = 'date'; 
 
-  List<String> _voiceLanguages = ['Cualquiera'];
-  List<String> _textLanguages = ['Cualquiera'];
-  List<String> _genres = ['Cualquiera'];
-  List<String> _years = ['Cualquiera'];
-  List<String> _platforms = ['Cualquiera']; 
+  List<String> _voiceLanguages = [];
+  List<String> _textLanguages = [];
+  List<String> _genres = [];
+  List<String> _years = [];
+  List<String> _platforms = []; 
 
-  String get selectedVoiceLanguage => _selectedVoiceLanguage;
-  String get selectedTextLanguage => _selectedTextLanguage;
-  String get selectedYear => _selectedYear;
-  String get selectedGenre => _selectedGenre;
-  String get selectedPlatform => _selectedPlatform;
+  List<String> get selectedVoiceLanguages => _selectedVoiceLanguages;
+  List<String> get selectedTextLanguages => _selectedTextLanguages;
+  List<String> get selectedYears => _selectedYears;
+  List<String> get selectedGenres => _selectedGenres;
+  List<String> get selectedPlatforms => _selectedPlatforms;
   String get selectedSort => _selectedSort;
   TextEditingController get searchController => _searchController;
   bool get isSyncing => _isSyncing;
@@ -199,7 +215,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     
-    // Inicializar controlador de pestañas
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(_handleTabSelection);
     
@@ -211,10 +226,8 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     _searchController.addListener(_onSearchChanged);
   }
 
-  // OPTIMIZACIÓN: Recargar solo cuando cambias de pestaña
   void _handleTabSelection() {
     if (_tabController.indexIsChanging) {
-      // Recargar la pestaña de destino para asegurar que tenga los filtros aplicados
       _refreshActiveTabOnly();
     }
   }
@@ -500,7 +513,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     _successSub?.cancel();
     _errorSub?.cancel();
     _linkSubscription?.cancel();
-    _tabController.dispose(); // Limpieza del controlador
+    _tabController.dispose(); 
     super.dispose();
   }
 
@@ -534,7 +547,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     });
   }
 
-  // OPTIMIZACIÓN CRÍTICA: Solo recarga la pestaña visible
   void _refreshLists() {
     _refreshActiveTabOnly();
   }
@@ -566,41 +578,56 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       if (options.isNotEmpty && mounted) {
         setState(() {
           if (options.containsKey('voices')) {
-            _voiceLanguages = ['Cualquiera', ...options['voices']!];
+            _voiceLanguages = options['voices']!;
           }
           if (options.containsKey('texts')) {
-            _textLanguages = ['Cualquiera', ...options['texts']!];
+            _textLanguages = options['texts']!;
           }
           if (options.containsKey('genres')) {
-            _genres = ['Cualquiera', ...options['genres']!];
+            _genres = options['genres']!;
           }
           if (options.containsKey('years')) {
-            _years = ['Cualquiera', ...options['years']!];
+            _years = options['years']!;
           }
           if (options.containsKey('platforms')) {
-            _platforms = ['Cualquiera', ...options['platforms']!];
+            _platforms = options['platforms']!;
           }
         });
       }
   }
 
   bool hasActiveFilters() => 
-    _selectedVoiceLanguage != 'Cualquiera' || 
-    _selectedTextLanguage != 'Cualquiera' ||
-    _selectedYear != 'Cualquiera' || 
-    _selectedGenre != 'Cualquiera' ||
-    _selectedPlatform != 'Cualquiera' ||
+    _selectedVoiceLanguages.isNotEmpty || 
+    _selectedTextLanguages.isNotEmpty ||
+    _selectedYears.isNotEmpty || 
+    _selectedGenres.isNotEmpty ||
+    _selectedPlatforms.isNotEmpty ||
     _selectedSort != 'date';
 
-  void removeFilter(String filterType) {
+  void removeFilter(String filterType, [String? value]) {
     setState(() {
       switch (filterType) {
         case 'sort': _selectedSort = 'date'; break;
-        case 'platform': _selectedPlatform = 'Cualquiera'; break;
-        case 'genre': _selectedGenre = 'Cualquiera'; break;
-        case 'year': _selectedYear = 'Cualquiera'; break;
-        case 'voice': _selectedVoiceLanguage = 'Cualquiera'; break;
-        case 'text': _selectedTextLanguage = 'Cualquiera'; break;
+        case 'platform': 
+          if (value != null) _selectedPlatforms.remove(value);
+          else _selectedPlatforms.clear();
+          break;
+        case 'genre': 
+          if (value != null) _selectedGenres.remove(value);
+          else _selectedGenres.clear();
+          break;
+        case 'year': 
+          if (value != null) _selectedYears.remove(value);
+          else _selectedYears.clear();
+          break;
+        case 'voice': 
+          if (value != null) _selectedVoiceLanguages.remove(value);
+          else _selectedVoiceLanguages.clear();
+          break;
+        case 'text': 
+          if (value != null) _selectedTextLanguages.remove(value);
+          else _selectedTextLanguages.clear();
+          break;
       }
     });
     _refreshLists();
@@ -613,204 +640,381 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       return;
     }
 
-    String tempVoice = _selectedVoiceLanguage;
-    String tempText = _selectedTextLanguage;
-    String tempYear = _selectedYear;
-    String tempGenre = _selectedGenre;
-    String tempPlatform = _selectedPlatform;
+    List<String> tempVoices = List.from(_selectedVoiceLanguages);
+    List<String> tempTexts = List.from(_selectedTextLanguages);
+    List<String> tempYears = List.from(_selectedYears);
+    List<String> tempGenres = List.from(_selectedGenres);
+    List<String> tempPlatforms = List.from(_selectedPlatforms);
     String tempSort = _selectedSort;
 
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true, 
-      backgroundColor: const Color(0xFF151921),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) {
-        return StatefulBuilder( 
-          builder: (BuildContext context, StateSetter setModalState) {
-            return FutureBuilder<List<String>>(
-              future: _dataService.getTopPlatforms(5), 
-              builder: (context, snapshot) {
-                final topPlatforms = snapshot.data ?? []; 
-
-                return Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: SingleChildScrollView( 
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(l10n.filtersConfig, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-                            IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-
-                        Text(l10n.sortBy, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(child: _buildSortChip(l10n.sortDate, 'date', tempSort, (val) => setModalState(() => tempSort = val))),
-                            const SizedBox(width: 8),
-                            Expanded(child: _buildSortChip(l10n.sortScore, 'score', tempSort, (val) => setModalState(() => tempSort = val))),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-
-                        Text(l10n.platformHeader, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 8),
-                        
-                        if (snapshot.connectionState == ConnectionState.waiting)
-                           const Center(child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator())),
-                        
-                        if (snapshot.hasData)
-                          Wrap(
-                            spacing: 8,
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+            child: Container(
+              color: const Color(0xFF0F1218).withOpacity(0.9), 
+              child: StatefulBuilder( 
+                builder: (BuildContext context, StateSetter setModalState) {
+                  return Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: SingleChildScrollView( 
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Center(
+                            child: Container(
+                              width: 40, height: 4, 
+                              margin: const EdgeInsets.only(bottom: 24),
+                              decoration: BoxDecoration(color: Colors.grey.shade700, borderRadius: BorderRadius.circular(2)),
+                            ),
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              _buildPlatformChip(l10n.any, tempPlatform, (val) => setModalState(() => tempPlatform = val)),
-                              ...topPlatforms.map((p) => _buildPlatformChip(p, tempPlatform, (val) => setModalState(() => tempPlatform = val))).toList(),
+                              Text(l10n.filtersConfig, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+                              IconButton(
+                                icon: const Icon(Icons.close_rounded, color: Colors.grey), 
+                                onPressed: () => Navigator.pop(context),
+                                style: IconButton.styleFrom(backgroundColor: Colors.white10),
+                              )
                             ],
                           ),
-                        
-                        if (!topPlatforms.contains(tempPlatform) && tempPlatform != 'Cualquiera') ...[
-                           const SizedBox(height: 8),
-                            _buildSearchableDropdown(label: l10n.otherPlatform, value: tempPlatform, items: _platforms, icon: Icons.gamepad, onSelected: (val) => setModalState(() => tempPlatform = val ?? 'Cualquiera'), context: context),
-                        ] else ...[
-                           const SizedBox(height: 8),
-                           TextButton.icon(
-                             onPressed: () {}, 
-                             icon: const Icon(Icons.search, size: 16),
-                             label: Text(l10n.searchPlatform, style: const TextStyle(fontSize: 13)),
-                           ),
-                           _buildSearchableDropdown(label: l10n.searchPlatform, value: '', items: _platforms, icon: Icons.gamepad, onSelected: (val) => setModalState(() => tempPlatform = val ?? 'Cualquiera'), context: context),
+                          const SizedBox(height: 32),
+
+                          _buildFilterHeader(l10n.sortBy, Icons.sort),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(child: _buildSortChip(l10n.sortDate, 'date', tempSort, (val) => setModalState(() => tempSort = val))),
+                              const SizedBox(width: 12),
+                              Expanded(child: _buildSortChip(l10n.sortScore, 'score', tempSort, (val) => setModalState(() => tempSort = val))),
+                            ],
+                          ),
+                          const SizedBox(height: 32),
+
+                          _buildMultiSelectSection(context, l10n.platformHeader, Icons.gamepad, tempPlatforms, _platforms, (list) => setModalState(() => tempPlatforms = list)),
+                          const SizedBox(height: 24),
+                          _buildMultiSelectSection(context, l10n.filterGenre, Icons.category, tempGenres, _genres, (list) => setModalState(() => tempGenres = list)),
+                          const SizedBox(height: 24),
+                          _buildMultiSelectSection(context, l10n.filterYear, Icons.calendar_today, tempYears, _years, (list) => setModalState(() => tempYears = list)),
+                          const SizedBox(height: 24),
+                          
+                          Theme(
+                            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                            child: ExpansionTile(
+                              title: Text(l10n.languages, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              leading: const Icon(Icons.language, color: Colors.grey),
+                              collapsedIconColor: Colors.grey,
+                              tilePadding: EdgeInsets.zero,
+                              children: [
+                                _buildMultiSelectSection(context, l10n.filterVoice, Icons.mic, tempVoices, _voiceLanguages, (list) => setModalState(() => tempVoices = list)),
+                                const SizedBox(height: 16),
+                                _buildMultiSelectSection(context, l10n.filterText, Icons.subtitles, tempTexts, _textLanguages, (list) => setModalState(() => tempTexts = list)),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 40),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextButton(
+                                  style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 18), foregroundColor: Colors.grey.shade400), 
+                                  onPressed: () { 
+                                    setModalState(() { tempVoices.clear(); tempTexts.clear(); tempYears.clear(); tempGenres.clear(); tempPlatforms.clear(); tempSort = 'date'; }); 
+                                  }, 
+                                  child: Text(l10n.btnClear)
+                                )
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                flex: 2,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(16),
+                                    color: Theme.of(context).colorScheme.primary, // CAMBIO: COLOR SÓLIDO
+                                    boxShadow: [
+                                      BoxShadow( // GLOW NEÓN
+                                        color: Theme.of(context).colorScheme.primary.withOpacity(0.5), 
+                                        blurRadius: 20, 
+                                        offset: const Offset(0, 4)
+                                      )
+                                    ]
+                                  ),
+                                  child: ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.transparent, 
+                                      shadowColor: Colors.transparent,
+                                      padding: const EdgeInsets.symmetric(vertical: 18),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))
+                                    ), 
+                                    onPressed: () { 
+                                      setState(() { 
+                                        _selectedVoiceLanguages = tempVoices; 
+                                        _selectedTextLanguages = tempTexts; 
+                                        _selectedYears = tempYears; 
+                                        _selectedGenres = tempGenres; 
+                                        _selectedPlatforms = tempPlatforms; 
+                                        _selectedSort = tempSort;
+                                      }); 
+                                      Navigator.pop(context); 
+                                      _refreshLists(); 
+                                    }, 
+                                    child: Text(l10n.btnApply.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2))
+                                  ),
+                                )
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom)),
                         ],
-
-                        const SizedBox(height: 24),
-                        const Divider(color: Colors.white10),
-                        const SizedBox(height: 16),
-
-                        _buildSearchableDropdown(label: l10n.filterGenre, value: tempGenre, items: _genres, icon: Icons.category, onSelected: (val) => setModalState(() => tempGenre = val ?? 'Cualquiera'), context: context),
-                        const SizedBox(height: 16),
-                        _buildSearchableDropdown(label: l10n.filterYear, value: tempYear, items: _years, icon: Icons.calendar_today, onSelected: (val) => setModalState(() => tempYear = val ?? 'Cualquiera'), context: context),
-                        const SizedBox(height: 16),
-                        
-                        Theme(
-                          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                          child: ExpansionTile(
-                            title: Text(l10n.languages, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                            leading: const Icon(Icons.language, color: Colors.grey),
-                            collapsedIconColor: Colors.grey,
-                            children: [
-                              _buildSearchableDropdown(label: l10n.filterVoice, value: tempVoice, items: _voiceLanguages, icon: Icons.mic, onSelected: (val) => setModalState(() => tempVoice = val ?? 'Cualquiera'), context: context),
-                              const SizedBox(height: 12),
-                              _buildSearchableDropdown(label: l10n.filterText, value: tempText, items: _textLanguages, icon: Icons.subtitles, onSelected: (val) => setModalState(() => tempText = val ?? 'Cualquiera'), context: context),
-                              const SizedBox(height: 12),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 32),
-                        Row(
-                          children: [
-                            Expanded(child: OutlinedButton(style: OutlinedButton.styleFrom(side: BorderSide(color: Colors.grey.shade700), padding: const EdgeInsets.symmetric(vertical: 16)), onPressed: () { setModalState(() { tempVoice = 'Cualquiera'; tempText = 'Cualquiera'; tempYear = 'Cualquiera'; tempGenre = 'Cualquiera'; tempPlatform = 'Cualquiera'; tempSort = 'date'; }); }, child: Text(l10n.btnClear, style: const TextStyle(color: Colors.white)))),
-                            const SizedBox(width: 16),
-                            Expanded(child: FilledButton(style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, padding: const EdgeInsets.symmetric(vertical: 16)), onPressed: () { 
-                              setState(() { 
-                                _selectedVoiceLanguage = tempVoice; 
-                                _selectedTextLanguage = tempText; 
-                                _selectedYear = tempYear; 
-                                _selectedGenre = tempGenre; 
-                                _selectedPlatform = tempPlatform; 
-                                _selectedSort = tempSort;
-                              }); 
-                              Navigator.pop(context); 
-                              _refreshLists(); 
-                            }, child: Text(l10n.btnApply, style: const TextStyle(fontWeight: FontWeight.bold)))),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom)),
-                      ],
+                      ),
                     ),
-                  ),
-                );
-              }
-            );
-          },
+                  );
+                },
+              ),
+            ),
+          ),
         );
       },
     );
   }
 
+  // --- WIDGET DE SELECCIÓN MÚLTIPLE ACTUALIZADO (ESTILO PREMIUM) ---
+  Widget _buildMultiSelectSection(BuildContext context, String title, IconData icon, List<String> currentSelection, List<String> allOptions, Function(List<String>) onChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildFilterHeader(title, icon),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ...currentSelection.map((item) => _buildActiveFilterTag(context, item, () {
+                final newList = List<String>.from(currentSelection)..remove(item);
+                onChanged(newList);
+            })),
+            
+            // BOTÓN AÑADIR PREMIUM
+            InkWell(
+              onTap: () {
+                _showMultiSelectSheet(context, title, allOptions, currentSelection, onChanged);
+              },
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white24, style: BorderStyle.solid), // Borde solido sutil
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.add, size: 14, color: Colors.white70),
+                    SizedBox(width: 4),
+                    Text("Añadir", style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // NUEVO TAG ACTIVO PERSONALIZADO
+  Widget _buildActiveFilterTag(BuildContext context, String label, VoidCallback onDelete) {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: primaryColor.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: primaryColor.withOpacity(0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: TextStyle(fontSize: 12, color: primaryColor, fontWeight: FontWeight.bold)),
+          const SizedBox(width: 6),
+          InkWell(
+            onTap: onDelete,
+            child: Icon(Icons.close, size: 14, color: primaryColor),
+          )
+        ],
+      ),
+    );
+  }
+
+  void _showMultiSelectSheet(BuildContext context, String title, List<String> options, List<String> selected, Function(List<String>) onConfirm) {
+    List<String> tempSelected = List.from(selected);
+    String searchQuery = '';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final filteredOptions = searchQuery.isEmpty 
+                ? options 
+                : options.where((op) => op.toLowerCase().contains(searchQuery.toLowerCase())).toList();
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.85, // MÁS ALTO
+              decoration: BoxDecoration(
+                color: const Color(0xFF0A0E14),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 20)],
+              ),
+              child: Column(
+                children: [
+                  // Search Header
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: const BoxDecoration(
+                      border: Border(bottom: BorderSide(color: Colors.white10)),
+                      color: Color(0xFF151921), // Cabecera distinguida
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(24))
+                    ),
+                    child: Column(
+                      children: [
+                        Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade700, borderRadius: BorderRadius.circular(2))),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                autofocus: false,
+                                style: const TextStyle(color: Colors.white),
+                                decoration: InputDecoration(
+                                  hintText: 'Buscar $title...',
+                                  prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                                  filled: true,
+                                  fillColor: const Color(0xFF0A0E14), // Input más oscuro
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                                ),
+                                onChanged: (val) => setSheetState(() => searchQuery = val),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Listo", style: TextStyle(fontWeight: FontWeight.bold)))
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  // Grid List
+                  Expanded(
+                    child: GridView.builder(
+                      padding: const EdgeInsets.all(16),
+                      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: 160, // Un poco más ancho
+                        childAspectRatio: 2.8,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                      ),
+                      itemCount: filteredOptions.length,
+                      itemBuilder: (context, index) {
+                        final option = filteredOptions[index];
+                        final isSelected = tempSelected.contains(option);
+                        final primaryColor = Theme.of(context).colorScheme.primary;
+
+                        return InkWell(
+                          onTap: () {
+                            setSheetState(() {
+                              if (isSelected) tempSelected.remove(option);
+                              else tempSelected.add(option);
+                            });
+                            onConfirm(tempSelected);
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            decoration: BoxDecoration(
+                              color: isSelected ? primaryColor.withOpacity(0.2) : const Color(0xFF1E232F),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isSelected ? primaryColor : Colors.white.withOpacity(0.05),
+                                width: isSelected ? 1.5 : 1
+                              ),
+                              boxShadow: isSelected ? [BoxShadow(color: primaryColor.withOpacity(0.2), blurRadius: 8)] : null, // GLOW AL SELECCIONAR
+                            ),
+                            alignment: Alignment.center,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Text(
+                              option,
+                              textAlign: TextAlign.center,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: isSelected ? Colors.white : Colors.grey.shade400,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                fontSize: 13
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+        );
+      }
+    );
+  }
+
+  Widget _buildFilterHeader(String title, IconData icon) {
+    return Row(
+      children: [
+        Container(width: 4, height: 16, color: Theme.of(context).colorScheme.secondary, margin: const EdgeInsets.only(right: 8)),
+        Icon(icon, size: 16, color: Colors.grey),
+        const SizedBox(width: 8),
+        Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.0)),
+      ],
+    );
+  }
+
   Widget _buildSortChip(String label, String value, String groupValue, Function(String) onSelected) {
     final isSelected = value == groupValue;
-    return ChoiceChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (selected) => onSelected(value),
-      selectedColor: Theme.of(context).colorScheme.primary,
-      backgroundColor: const Color(0xFF1E232F),
-      labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white),
-      side: BorderSide.none,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    
+    return InkWell(
+      onTap: () => onSelected(value),
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: isSelected ? primaryColor.withOpacity(0.2) : const Color(0xFF1E232F),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: isSelected ? primaryColor : Colors.white10, width: isSelected ? 1.5 : 1),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.grey.shade400,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal
+          ),
+        ),
+      ),
     );
-  }
-
-  Widget _buildPlatformChip(String platform, String groupValue, Function(String) onSelected) {
-    final l10n = AppLocalizations.of(context)!;
-    final isSelected = platform == groupValue;
-    return ChoiceChip(
-      label: Text(platform == 'Cualquiera' ? l10n.any : platform),
-      selected: isSelected,
-      onSelected: (selected) => onSelected(platform),
-      selectedColor: Theme.of(context).colorScheme.primary.withOpacity(0.8),
-      backgroundColor: const Color(0xFF2A3040),
-      labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.grey.shade400, fontSize: 12),
-      side: BorderSide.none,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-    );
-  }
-
-  Widget _buildSearchableDropdown({required String label, required String value, required List<String> items, required IconData icon, required Function(String?) onSelected, required BuildContext context}) {
-    final l10n = AppLocalizations.of(context)!;
-    final uniqueItems = items.toSet().toList();
-    final safeValue = uniqueItems.contains(value) ? value : 'Cualquiera';
-    final isCualquiera = safeValue == 'Cualquiera';
-
-    return LayoutBuilder(builder: (context, constraints) {
-        return Autocomplete<String>(
-          key: ValueKey(safeValue),
-          initialValue: TextEditingValue(text: isCualquiera ? '' : safeValue),
-          optionsBuilder: (TextEditingValue v) {
-            if (v.text.isEmpty) return uniqueItems;
-            return uniqueItems.where((op) => op.toLowerCase().contains(v.text.toLowerCase()));
-          },
-          onSelected: onSelected,
-          fieldViewBuilder: (ctx, controller, focusNode, onSubmitted) {
-            return TextField(
-              controller: controller, focusNode: focusNode,
-              decoration: InputDecoration(
-                labelText: label, hintText: l10n.any,
-                prefixIcon: Icon(icon, color: Theme.of(context).colorScheme.primary),
-                suffixIcon: controller.text.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, size: 20, color: Colors.grey), onPressed: () { controller.clear(); onSelected('Cualquiera'); }) : null,
-              ),
-              style: const TextStyle(color: Colors.white),
-            );
-          },
-          optionsViewBuilder: (ctx, onSelected, options) {
-            return Align(alignment: Alignment.topLeft, child: Material(elevation: 4.0, color: const Color(0xFF1E232F),
-                child: Container(width: constraints.maxWidth, constraints: const BoxConstraints(maxHeight: 250),
-                  child: ListView.builder(padding: EdgeInsets.zero, shrinkWrap: true, itemCount: options.length, itemBuilder: (ctx, i) {
-                      final op = options.elementAt(i);
-                      return ListTile(title: Text(op == 'Cualquiera' ? l10n.any : op, style: const TextStyle(color: Colors.white)), onTap: () => onSelected(op));
-                  }),
-            )));
-          },
-        );
-    });
   }
 
   Widget buildActiveFiltersRow(BuildContext context) {
@@ -818,20 +1022,21 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     final parent = this;
     final activeFilters = <Widget>[];
 
-    void addFilterChip(String label, String filterType) {
+    void addFilterChip(String label, String filterType, [String? value]) {
       activeFilters.add(_buildDismissibleFilterChip(
         context,
         label,
-        () => parent.removeFilter(filterType),
+        () => parent.removeFilter(filterType, value),
       ));
     }
 
     if (parent.selectedSort != 'date') addFilterChip('${l10n.sortBy}: ${parent.selectedSort == 'score' ? l10n.sortScore : l10n.sortDate}', 'sort');
-    if (parent.selectedPlatform != 'Cualquiera') addFilterChip('${l10n.filterPlatform}: ${parent.selectedPlatform}', 'platform');
-    if (parent.selectedGenre != 'Cualquiera') addFilterChip('${l10n.filterGenre}: ${parent.selectedGenre}', 'genre');
-    if (parent.selectedYear != 'Cualquiera') addFilterChip('${l10n.filterYear}: ${parent.selectedYear}', 'year');
-    if (parent.selectedVoiceLanguage != 'Cualquiera') addFilterChip('${l10n.filterVoice}: ${parent.selectedVoiceLanguage}', 'voice');
-    if (parent.selectedTextLanguage != 'Cualquiera') addFilterChip('${l10n.filterText}: ${parent.selectedTextLanguage}', 'text');
+    
+    for (var p in parent.selectedPlatforms) addFilterChip(p, 'platform', p);
+    for (var g in parent.selectedGenres) addFilterChip(g, 'genre', g);
+    for (var y in parent.selectedYears) addFilterChip(y, 'year', y);
+    for (var v in parent.selectedVoiceLanguages) addFilterChip('${l10n.filterVoice}: $v', 'voice', v);
+    for (var t in parent.selectedTextLanguages) addFilterChip('${l10n.filterText}: $t', 'text', t);
     
     if (activeFilters.isEmpty) return const SizedBox.shrink();
 
@@ -967,15 +1172,20 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                     ],
                   ),
                 ),
-              TabBar(
-                controller: _tabController, // Asignamos el controlador manual
-                isScrollable: true, 
-                tabAlignment: TabAlignment.center, 
-                tabs: [
-                  Tab(text: l10n?.tabGames ?? "JUEGOS", icon: const Icon(Icons.sports_esports)),
-                  Tab(text: l10n?.tabDlcs ?? "DLCs", icon: const Icon(Icons.extension)),
-                  Tab(text: l10n?.tabUpcoming ?? "PRÓXIMOS", icon: const Icon(Icons.rocket_launch)), 
-                ],
+              // CAMBIO VISUAL: Padding extra para separar los tabs
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: TabBar(
+                  controller: _tabController,
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.center, 
+                  labelPadding: const EdgeInsets.symmetric(horizontal: 24), // Más espacio
+                  tabs: [
+                    Tab(text: l10n?.tabGames ?? "JUEGOS"), // Iconos quitados para look más limpio
+                    Tab(text: l10n?.tabDlcs ?? "DLCs"),
+                    Tab(text: l10n?.tabUpcoming ?? "PRÓXIMOS"), 
+                  ],
+                ),
               ),
             ],
           ),
@@ -1053,11 +1263,11 @@ class UpcomingGamesTabState extends State<UpcomingGamesTab> with AutomaticKeepAl
 
     final games = await widget.dataService.getUpcomingGames(
       query: widget.parent.searchController.text.isNotEmpty ? widget.parent.searchController.text : null,
-      voiceLanguage: widget.parent.selectedVoiceLanguage,
-      textLanguage: widget.parent.selectedTextLanguage,
-      year: widget.parent.selectedYear,
-      genre: widget.parent.selectedGenre,
-      platform: widget.parent.selectedPlatform,
+      voiceLanguages: widget.parent.selectedVoiceLanguages, // ACTUALIZADO A LISTAS
+      textLanguages: widget.parent.selectedTextLanguages,
+      years: widget.parent.selectedYears,
+      genres: widget.parent.selectedGenres,
+      platforms: widget.parent.selectedPlatforms,
       sortBy: widget.parent.selectedSort,
       fastMode: true, // OPTIMIZACION
     );
@@ -1349,11 +1559,11 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
         limit: _limit,
         offset: _page * _limit,
         query: widget.parent.searchController.text.isNotEmpty ? widget.parent.searchController.text : null,
-        voiceLanguage: widget.parent.selectedVoiceLanguage,
-        textLanguage: widget.parent.selectedTextLanguage,
-        year: widget.parent.selectedYear,
-        genre: widget.parent.selectedGenre,
-        platform: widget.parent.selectedPlatform,
+        voiceLanguages: widget.parent.selectedVoiceLanguages, // ACTUALIZADO A LISTAS
+        textLanguages: widget.parent.selectedTextLanguages,
+        years: widget.parent.selectedYears,
+        genres: widget.parent.selectedGenres,
+        platforms: widget.parent.selectedPlatforms,
         tipo: widget.tipo, 
         sortBy: widget.parent.selectedSort,
         fastMode: true, // OPTIMIZACION

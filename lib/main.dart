@@ -149,8 +149,12 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   final DataService _dataService = DataService();
   final TextEditingController _searchController = TextEditingController();
   
+  // CONTROLADOR DE PESTAÑAS EXPLÍCITO
+  late TabController _tabController;
+  
   final GlobalKey<GameListTabState> _gamesTabKey = GlobalKey();
   final GlobalKey<GameListTabState> _dlcsTabKey = GlobalKey();
+  final GlobalKey<UpcomingGamesTabState> _upcomingTabKey = GlobalKey();
 
   late AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
@@ -193,36 +197,112 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this); 
+    WidgetsBinding.instance.addObserver(this);
+    
+    // Inicializar controlador de pestañas
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(_handleTabSelection);
+    
     _requestNotificationPermissions(); 
-    // Mantenemos el postFrameCallback para dar tiempo a la UI
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAdultStatus(); 
       _initDeepLinks(); 
     });
     _searchController.addListener(_onSearchChanged);
   }
 
+  // OPTIMIZACIÓN: Recargar solo cuando cambias de pestaña
+  void _handleTabSelection() {
+    if (_tabController.indexIsChanging) {
+      // Recargar la pestaña de destino para asegurar que tenga los filtros aplicados
+      _refreshActiveTabOnly();
+    }
+  }
+
+  Future<void> _checkAdultStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isAdult = prefs.getBool('is_adult');
+    final l10n = AppLocalizations.of(context)!;
+
+    if (isAdult == null) {
+      if (!mounted) return;
+      await showDialog<bool>(
+        context: context,
+        barrierDismissible: false, 
+        builder: (context) => PopScope(
+          canPop: false, 
+          child: AlertDialog(
+            title: Text(l10n.ageVerificationTitle),
+            content: Text(l10n.ageVerificationContent),
+            actions: [
+              TextButton(
+                onPressed: () async {
+                  await prefs.setBool('is_adult', false);
+                  Navigator.pop(context);
+                  _refreshLists(); 
+                },
+                child: Text(l10n.btnNo),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  await prefs.setBool('is_adult', true);
+                  Navigator.pop(context);
+                  _refreshLists(); 
+                },
+                child: Text(l10n.btnYesAdult),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _toggleAdultContent() async {
+    final prefs = await SharedPreferences.getInstance();
+    final current = prefs.getBool('is_adult') ?? false;
+    final l10n = AppLocalizations.of(context)!;
+    
+    if (!current) {
+        bool? confirm = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(l10n.dialogAdultTitle),
+            content: Text(l10n.dialogAdultContent),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: Text(l10n.cancel)),
+              TextButton(onPressed: () => Navigator.pop(context, true), child: Text(l10n.confirm)),
+            ],
+          ),
+        );
+        if (confirm != true) return;
+    }
+
+    await prefs.setBool('is_adult', !current);
+    _refreshLists();
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(!current ? l10n.msgAdultEnabled : l10n.msgAdultDisabled)),
+      );
+    }
+  }
+
   Future<void> _initDeepLinks() async {
     _appLinks = AppLinks();
-
-    // ESTRATEGIA DUAL: 
-    // 1. Intentar obtener el link inicial explícitamente (Cold Start)
     try {
       final Uri? initialUri = await _appLinks.getInitialAppLink();
       if (initialUri != null) {
-        debugPrint("🚀 Cold Start Link detectado: $initialUri");
         _processOrQueueLink(initialUri);
       }
     } catch (e) {
-      debugPrint("Info: No se pudo obtener initialAppLink (normal si la versión no lo soporta o no hubo link): $e");
+      debugPrint("Info: $e");
     }
 
-    // 2. Suscribirse al stream para nuevos links (Warm Start / Background)
     _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
-      debugPrint("🚀 Stream Link detectado: $uri");
       _processOrQueueLink(uri);
     }, onError: (err) {
-      debugPrint("Error en deep link stream: $err");
+      debugPrint("Error: $err");
     });
   }
 
@@ -230,7 +310,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     if (_isReadyForDeepLinks) {
       _handleDeepLink(uri);
     } else {
-      debugPrint("⏳ Deep Link pospuesto (Cargando datos...): $uri");
       _pendingDeepLink = uri;
     }
   }
@@ -244,9 +323,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
         final slug = uri.pathSegments.last;
         final year = uri.queryParameters['year']; 
         
-        debugPrint("🔍 Buscando juego: SLUG=$slug, YEAR=$year");
-        
-        // Pequeño delay de seguridad si acabamos de arrancar
         if (!_isReadyForDeepLinks) await Future.delayed(const Duration(milliseconds: 500));
 
         final game = await _dataService.getGameBySlug(slug, year: year);
@@ -254,17 +330,15 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
         if (!mounted) return;
 
         if (game != null) {
-           debugPrint("✅ Juego encontrado. Navegando...");
            Navigator.push(
              context,
              MaterialPageRoute(builder: (context) => GameDetailPage(game: game)),
            );
         } else {
-           debugPrint("❌ Juego no encontrado en local.");
            if (!_isSyncing) {
              ScaffoldMessenger.of(context).showSnackBar(
                const SnackBar(
-                 content: Text('Juego no encontrado. ¿Está la base de datos actualizada?'),
+                 content: Text('Juego no encontrado'),
                  duration: Duration(seconds: 3),
                ),
              );
@@ -293,7 +367,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       final dbHasData = (await _dataService.countLocalGames()) > 0;
 
       if (dbHasData) {
-          debugPrint("La base de datos tiene datos. Cargando desde SQLite local.");
           final prefs = await SharedPreferences.getInstance();
           await prefs.setBool('is_syncing', false);
           
@@ -304,8 +377,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
           await _loadFilterOptions();
           _refreshLists();
           
-          // IMPORTANTE: Marcamos como listo y procesamos pendientes
-          debugPrint("✅ Datos cargados. App lista para Deep Links.");
           _markReadyForLinks(); 
           return;
       }
@@ -313,7 +384,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       bool interrupted = await _wasSyncInterrupted();
       
       if (interrupted) {
-          debugPrint("BBDD vacía pero sync interrumpida. Reintentando...");
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
                SnackBar(content: Text(l10n.msgSyncInterrupted), duration: const Duration(seconds: 4)),
@@ -321,7 +391,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
           }
           _updateCatalog(force: true, forceDownload: false);
       } else {
-          debugPrint("BBDD vacía. Empezando sincronización inicial completa.");
           _updateCatalog(force: true, forceDownload: true);
       }
   }
@@ -329,8 +398,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   void _markReadyForLinks() {
     setState(() => _isReadyForDeepLinks = true);
     if (_pendingDeepLink != null) {
-      debugPrint("🚀 Ejecutando Deep Link pendiente AHORA...");
-      // Pequeño delay para dejar que el frame actual termine de pintarse
       Future.delayed(const Duration(milliseconds: 100), () {
          _handleDeepLink(_pendingDeepLink!);
          _pendingDeepLink = null;
@@ -372,6 +439,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   }
 
   void _finishSync({bool success = true}) async {
+    final l10n = AppLocalizations.of(context)!;
     WakelockPlus.disable();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_syncing', false);
@@ -380,13 +448,14 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       if (success) {
         await _loadFilterOptions();
         _refreshLists();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('¡Actualización completada!')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.msgUpdateComplete)));
         _markReadyForLinks(); 
       }
     }
   }
 
   void _setupServiceListeners() {
+    final l10n = AppLocalizations.of(context)!;
     _progressSub?.cancel();
     _successSub?.cancel();
     _errorSub?.cancel();
@@ -398,7 +467,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
            setState(() {
             _isSyncing = true;
             _syncProgress = percent / 100.0;
-            _statusMessage = 'Procesando... $percent%';
+            _statusMessage = '${l10n.msgProcessing} $percent%';
           });
         }
       }
@@ -410,7 +479,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     });
     _errorSub = service.on('error').listen((event) {
       if (mounted) {
-        _updateStatus('Error en segundo plano: ${event?['message']}');
+        _updateStatus('Error: ${event?['message']}');
         _finishSync(success: false);
       }
     });
@@ -431,6 +500,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     _successSub?.cancel();
     _errorSub?.cancel();
     _linkSubscription?.cancel();
+    _tabController.dispose(); // Limpieza del controlador
     super.dispose();
   }
 
@@ -464,9 +534,27 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     });
   }
 
+  // OPTIMIZACIÓN CRÍTICA: Solo recarga la pestaña visible
   void _refreshLists() {
-    _gamesTabKey.currentState?.reload();
-    _dlcsTabKey.currentState?.reload();
+    _refreshActiveTabOnly();
+  }
+
+  void _refreshActiveTabOnly() {
+    switch (_tabController.index) {
+      case 0:
+        _gamesTabKey.currentState?.reload();
+        break;
+      case 1:
+        _dlcsTabKey.currentState?.reload();
+        break;
+      case 2:
+        _upcomingTabKey.currentState?.reload();
+        break;
+    }
+  }
+
+  void _triggerUpcomingSync() {
+    _upcomingTabKey.currentState?.syncUpcoming();
   }
 
   void _updateStatus(String msg) {
@@ -561,18 +649,18 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                         ),
                         const SizedBox(height: 24),
 
-                        const Text("ORDENAR POR", style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+                        Text(l10n.sortBy, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            Expanded(child: _buildSortChip("Fecha Lanzamiento", 'date', tempSort, (val) => setModalState(() => tempSort = val))),
+                            Expanded(child: _buildSortChip(l10n.sortDate, 'date', tempSort, (val) => setModalState(() => tempSort = val))),
                             const SizedBox(width: 8),
-                            Expanded(child: _buildSortChip("Mejor Valorados", 'score', tempSort, (val) => setModalState(() => tempSort = val))),
+                            Expanded(child: _buildSortChip(l10n.sortScore, 'score', tempSort, (val) => setModalState(() => tempSort = val))),
                           ],
                         ),
                         const SizedBox(height: 24),
 
-                        const Text("PLATAFORMA", style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+                        Text(l10n.platformHeader, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 8),
                         
                         if (snapshot.connectionState == ConnectionState.waiting)
@@ -582,22 +670,22 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                           Wrap(
                             spacing: 8,
                             children: [
-                              _buildPlatformChip("Cualquiera", tempPlatform, (val) => setModalState(() => tempPlatform = val)),
+                              _buildPlatformChip(l10n.any, tempPlatform, (val) => setModalState(() => tempPlatform = val)),
                               ...topPlatforms.map((p) => _buildPlatformChip(p, tempPlatform, (val) => setModalState(() => tempPlatform = val))).toList(),
                             ],
                           ),
                         
                         if (!topPlatforms.contains(tempPlatform) && tempPlatform != 'Cualquiera') ...[
                            const SizedBox(height: 8),
-                            _buildSearchableDropdown(label: "Otra plataforma...", value: tempPlatform, items: _platforms, icon: Icons.gamepad, onSelected: (val) => setModalState(() => tempPlatform = val ?? 'Cualquiera'), context: context),
+                            _buildSearchableDropdown(label: l10n.otherPlatform, value: tempPlatform, items: _platforms, icon: Icons.gamepad, onSelected: (val) => setModalState(() => tempPlatform = val ?? 'Cualquiera'), context: context),
                         ] else ...[
                            const SizedBox(height: 8),
                            TextButton.icon(
                              onPressed: () {}, 
                              icon: const Icon(Icons.search, size: 16),
-                             label: const Text("Buscar otra plataforma...", style: TextStyle(fontSize: 13)),
+                             label: Text(l10n.searchPlatform, style: const TextStyle(fontSize: 13)),
                            ),
-                           _buildSearchableDropdown(label: "Buscar plataforma...", value: '', items: _platforms, icon: Icons.gamepad, onSelected: (val) => setModalState(() => tempPlatform = val ?? 'Cualquiera'), context: context),
+                           _buildSearchableDropdown(label: l10n.searchPlatform, value: '', items: _platforms, icon: Icons.gamepad, onSelected: (val) => setModalState(() => tempPlatform = val ?? 'Cualquiera'), context: context),
                         ],
 
                         const SizedBox(height: 24),
@@ -672,9 +760,10 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   }
 
   Widget _buildPlatformChip(String platform, String groupValue, Function(String) onSelected) {
+    final l10n = AppLocalizations.of(context)!;
     final isSelected = platform == groupValue;
     return ChoiceChip(
-      label: Text(platform),
+      label: Text(platform == 'Cualquiera' ? l10n.any : platform),
       selected: isSelected,
       onSelected: (selected) => onSelected(platform),
       selectedColor: Theme.of(context).colorScheme.primary.withOpacity(0.8),
@@ -737,8 +826,8 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       ));
     }
 
-    if (parent.selectedSort != 'date') addFilterChip('Orden: ${parent.selectedSort == 'score' ? 'Mejor valorados' : 'Fecha'}', 'sort');
-    if (parent.selectedPlatform != 'Cualquiera') addFilterChip('Plataforma: ${parent.selectedPlatform}', 'platform');
+    if (parent.selectedSort != 'date') addFilterChip('${l10n.sortBy}: ${parent.selectedSort == 'score' ? l10n.sortScore : l10n.sortDate}', 'sort');
+    if (parent.selectedPlatform != 'Cualquiera') addFilterChip('${l10n.filterPlatform}: ${parent.selectedPlatform}', 'platform');
     if (parent.selectedGenre != 'Cualquiera') addFilterChip('${l10n.filterGenre}: ${parent.selectedGenre}', 'genre');
     if (parent.selectedYear != 'Cualquiera') addFilterChip('${l10n.filterYear}: ${parent.selectedYear}', 'year');
     if (parent.selectedVoiceLanguage != 'Cualquiera') addFilterChip('${l10n.filterVoice}: ${parent.selectedVoiceLanguage}', 'voice');
@@ -778,13 +867,13 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       await DefaultCacheManager().emptyCache();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Caché de imágenes limpiada')),
+          SnackBar(content: Text(l10n.msgCacheCleared)),
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error limpiando caché: $e')),
+          SnackBar(content: Text('${l10n.msgCacheError}: $e')),
         );
       }
     }
@@ -795,157 +884,409 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     final l10n = AppLocalizations.of(context);
     final double topPadding = MediaQuery.of(context).padding.top + kToolbarHeight + 120;
     
-    return DefaultTabController(
-      length: 3, 
-      child: Scaffold(
-        extendBodyBehindAppBar: true, 
-        appBar: AppBar(
-          backgroundColor: const Color(0xFF0A0E14).withOpacity(0.85), 
-          flexibleSpace: ClipRRect(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10), 
-              child: Container(color: Colors.transparent),
-            ),
+    // CAMBIO IMPORTANTE: Eliminado DefaultTabController
+    return Scaffold(
+      extendBodyBehindAppBar: true, 
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0A0E14).withOpacity(0.85), 
+        flexibleSpace: ClipRRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10), 
+            child: Container(color: Colors.transparent),
           ),
-          title: Row(
-            mainAxisSize: MainAxisSize.min,
+        ),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset('assets/icon/app_logo.png', width: 32, height: 32),
+            const SizedBox(width: 8),
+            Text(l10n?.appTitle ?? 'VoxGamer'),
+          ],
+        ),
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.white),
+            onSelected: (value) { 
+              if (value == 'update') _updateCatalog(); 
+              if (value == 'update_upcoming') _triggerUpcomingSync();
+              if (value == 'clear_cache') _clearCache(context);
+              if (value == 'toggle_adult') _toggleAdultContent();
+            },
+            color: const Color(0xFF1E232F),
+            itemBuilder: (context) {
+              final l10n = AppLocalizations.of(context)!;
+              return [
+                PopupMenuItem(value: 'update', child: Row(children: [const Icon(Icons.cloud_sync, color: Colors.blueAccent), const SizedBox(width: 8), Text(l10n.syncQuick, style: const TextStyle(color: Colors.white))])),
+                PopupMenuItem(value: 'update_upcoming', child: Row(children: [const Icon(Icons.rocket, color: Colors.purpleAccent), const SizedBox(width: 8), Text(l10n.syncUpcoming, style: const TextStyle(color: Colors.white))])),
+                PopupMenuItem(value: 'toggle_adult', child: Row(children: [const Icon(Icons.explicit, color: Colors.redAccent), const SizedBox(width: 8), Text(l10n.filterAdult, style: const TextStyle(color: Colors.white))])),
+                PopupMenuItem(value: 'clear_cache', child: Row(children: [const Icon(Icons.cleaning_services, color: Colors.orangeAccent), const SizedBox(width: 8), Text(l10n.clearCache, style: const TextStyle(color: Colors.white))])),
+              ];
+            },
+          ),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(120), 
+          child: Column(
             children: [
-              Image.asset('assets/icon/app_logo.png', width: 32, height: 32),
-              const SizedBox(width: 8),
-              Text(l10n?.appTitle ?? 'VoxGamer'),
+              if (!_isSyncing)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 4))]),
+                          child: TextField(
+                            controller: _searchController,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: InputDecoration(
+                              hintText: l10n?.searchHint ?? '...',
+                              hintStyle: TextStyle(color: Colors.grey.shade500),
+                              prefixIcon: const Icon(Icons.search, color: Color(0xFF7C4DFF)),
+                              fillColor: const Color(0xFF1E232F),
+                              suffixIcon: _searchController.text.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, color: Colors.grey), onPressed: () { _searchController.clear(); _refreshLists(); }) : null,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      InkWell(
+                        onTap: _showFilterDialog,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: hasActiveFilters() ? Theme.of(context).colorScheme.primary : const Color(0xFF1E232F),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: hasActiveFilters() ? Colors.transparent : Colors.grey.shade800),
+                            boxShadow: [BoxShadow(color: hasActiveFilters() ? Theme.of(context).colorScheme.primary.withOpacity(0.4) : Colors.transparent, blurRadius: 10, spreadRadius: 1)]
+                          ),
+                          child: const Icon(Icons.tune, color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              TabBar(
+                controller: _tabController, // Asignamos el controlador manual
+                isScrollable: true, 
+                tabAlignment: TabAlignment.center, 
+                tabs: [
+                  Tab(text: l10n?.tabGames ?? "JUEGOS", icon: const Icon(Icons.sports_esports)),
+                  Tab(text: l10n?.tabDlcs ?? "DLCs", icon: const Icon(Icons.extension)),
+                  Tab(text: l10n?.tabUpcoming ?? "PRÓXIMOS", icon: const Icon(Icons.rocket_launch)), 
+                ],
+              ),
             ],
           ),
-          actions: [
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, color: Colors.white),
-              onSelected: (value) { 
-                if (value == 'update') _updateCatalog(); 
-                if (value == 'clear_cache') _clearCache(context);
-              },
-              color: const Color(0xFF1E232F),
-              itemBuilder: (context) => [
-                PopupMenuItem(value: 'update', child: Row(children: [const Icon(Icons.cloud_sync, color: Colors.blueAccent), const SizedBox(width: 8), Text(l10n?.syncQuick ?? "Actualizar", style: const TextStyle(color: Colors.white))])),
-                PopupMenuItem(value: 'clear_cache', child: Row(children: [const Icon(Icons.cleaning_services, color: Colors.orangeAccent), const SizedBox(width: 8), const Text("Limpiar Caché Imágenes", style: TextStyle(color: Colors.white))])),
-              ],
-            ),
-          ],
-          bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(120), 
-            child: Column(
-              children: [
-                if (!_isSyncing)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            decoration: BoxDecoration(boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 4))]),
-                            child: TextField(
-                              controller: _searchController,
-                              style: const TextStyle(color: Colors.white),
-                              decoration: InputDecoration(
-                                hintText: l10n?.searchHint ?? '...',
-                                hintStyle: TextStyle(color: Colors.grey.shade500),
-                                prefixIcon: const Icon(Icons.search, color: Color(0xFF7C4DFF)),
-                                fillColor: const Color(0xFF1E232F),
-                                suffixIcon: _searchController.text.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, color: Colors.grey), onPressed: () { _searchController.clear(); _refreshLists(); }) : null,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        InkWell(
-                          onTap: _showFilterDialog,
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: hasActiveFilters() ? Theme.of(context).colorScheme.primary : const Color(0xFF1E232F),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: hasActiveFilters() ? Colors.transparent : Colors.grey.shade800),
-                              boxShadow: [BoxShadow(color: hasActiveFilters() ? Theme.of(context).colorScheme.primary.withOpacity(0.4) : Colors.transparent, blurRadius: 10, spreadRadius: 1)]
-                            ),
-                            child: const Icon(Icons.tune, color: Colors.white),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                TabBar(
-                  isScrollable: true, 
-                  tabAlignment: TabAlignment.center, 
-                  tabs: [
-                    Tab(text: l10n?.tabGames ?? "JUEGOS", icon: const Icon(Icons.sports_esports)),
-                    Tab(text: l10n?.tabDlcs ?? "DLCs", icon: const Icon(Icons.extension)),
-                    // CAMBIO A TEXTO MÁS CORTO
-                    Tab(text: "PRÓXIMOS", icon: const Icon(Icons.rocket_launch)), 
-                  ],
-                ),
-              ],
-            ),
+        ),
+      ),
+      body: Stack(
+        children: [
+          TabBarView(
+            controller: _tabController, // Asignamos el controlador manual
+            children: [
+              GameListTab(
+                key: _gamesTabKey,
+                tipo: 'game',
+                dataService: _dataService,
+                parent: this,
+                topPadding: topPadding, 
+              ),
+              GameListTab(
+                key: _dlcsTabKey,
+                tipo: 'dlc',
+                dataService: _dataService,
+                parent: this,
+                topPadding: topPadding, 
+              ),
+              UpcomingGamesTab(
+                key: _upcomingTabKey,
+                topPadding: topPadding,
+                dataService: _dataService,
+                parent: this, 
+              ), 
+            ],
           ),
-        ),
-        body: Stack(
-          children: [
-            // ELIMINADO EL PADDING DEL PADRE PARA PERMITIR SCROLL UNDER
-            TabBarView(
-              children: [
-                GameListTab(
-                  key: _gamesTabKey,
-                  tipo: 'game',
-                  dataService: _dataService,
-                  parent: this,
-                  topPadding: topPadding, // PASAMOS PADDING
-                ),
-                GameListTab(
-                  key: _dlcsTabKey,
-                  tipo: 'dlc',
-                  dataService: _dataService,
-                  parent: this,
-                  topPadding: topPadding, // PASAMOS PADDING
-                ),
-                UpcomingGamesPlaceholder(topPadding: topPadding), // PASAMOS PADDING
-              ],
-            ),
-            if (_isSyncing)
-               MinigameOverlay(progress: _syncProgress),
-          ],
-        ),
+          if (_isSyncing)
+             MinigameOverlay(progress: _syncProgress),
+        ],
       ),
     );
   }
 }
 
-// ... (Resto de clases: UpcomingGamesPlaceholder, GameListTab, GameListTabState - se mantienen idénticas) ...
-// Para ahorrar espacio y evitar errores de recorte, mantengo las clases tal cual estaban en el código original.
-// Solo re-pego GameListTab y su estado para asegurar que el archivo cierra bien.
+// ... (Resto de clases UpcomingGamesTab, GameListTab se mantienen igual)
+// Solo repito la estructura base para cerrar el archivo correctamente.
 
-class UpcomingGamesPlaceholder extends StatelessWidget {
+class UpcomingGamesTab extends StatefulWidget {
   final double topPadding;
-  const UpcomingGamesPlaceholder({super.key, this.topPadding = 0});
+  final DataService dataService;
+  final HomePageState parent; 
+
+  const UpcomingGamesTab({super.key, required this.topPadding, required this.dataService, required this.parent});
+
+  @override
+  State<UpcomingGamesTab> createState() => UpcomingGamesTabState();
+}
+
+class UpcomingGamesTabState extends State<UpcomingGamesTab> with AutomaticKeepAliveClientMixin {
+  bool _isLoading = true; // CAMBIO: Iniciamos en true para mostrar carga de inmediato
+  List<Game> _games = [];
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGames();
+  }
+
+  void reload() {
+    _loadGames();
+  }
+
+  Future<void> _loadGames() async {
+    // Si no es el primer inicio, podemos poner isLoading a true para refrescar UI
+    if (mounted) setState(() => _isLoading = true);
+
+    final games = await widget.dataService.getUpcomingGames(
+      query: widget.parent.searchController.text.isNotEmpty ? widget.parent.searchController.text : null,
+      voiceLanguage: widget.parent.selectedVoiceLanguage,
+      textLanguage: widget.parent.selectedTextLanguage,
+      year: widget.parent.selectedYear,
+      genre: widget.parent.selectedGenre,
+      platform: widget.parent.selectedPlatform,
+      sortBy: widget.parent.selectedSort,
+      fastMode: true, // OPTIMIZACION
+    );
+    if (mounted) {
+      setState(() {
+        _games = games;
+        _isLoading = false; // CAMBIO: Marcamos como terminado
+      });
+    }
+  }
+
+  Future<void> syncUpcoming() async {
+    setState(() => _isLoading = true);
+    await widget.dataService.syncUpcomingGames();
+    await _loadGames();
+    if (mounted) {
+      final l10n = AppLocalizations.of(context)!;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.msgUpcomingUpdated)),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(top: topPadding),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.rocket_launch, size: 80, color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
-            const SizedBox(height: 24),
-            const Text("Próximos Lanzamientos", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                "Estamos preparando el motor de ignición.\nPronto verás aquí los estrenos más esperados.",
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Colors.grey.shade400, height: 1.5),
-              ),
+    super.build(context);
+    final l10n = AppLocalizations.of(context)!;
+    
+    // CAMBIO: Si está cargando, mostramos spinner en lugar de "Vacío"
+    if (_isLoading && _games.isEmpty) {
+       return Padding(
+         padding: EdgeInsets.only(top: widget.topPadding + 50),
+         child: const Center(child: CircularProgressIndicator()),
+       );
+    }
+    
+    if (_games.isEmpty && !_isLoading) {
+      if (widget.parent.hasActiveFilters()) {
+         return Center(child: Text(l10n.noSignals, style: const TextStyle(color: Colors.grey)));
+      }
+
+      return Center(
+        child: Padding(
+          padding: EdgeInsets.only(top: widget.topPadding + 32, left: 32, right: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.rocket_launch, size: 80, color: Colors.grey.shade800),
+              const SizedBox(height: 24),
+              Text(l10n.msgUpcomingEmpty, textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, color: Colors.grey, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: syncUpcoming, 
+                icon: const Icon(Icons.refresh),
+                label: Text(l10n.btnDownloadNow),
+                style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.white),
+              )
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        if (_isLoading)
+          Padding(
+            padding: EdgeInsets.only(top: widget.topPadding + 10, bottom: 10),
+            child: const LinearProgressIndicator(minHeight: 2, color: Colors.purpleAccent),
+          ),
+        
+        Expanded(
+          child: ListView.builder(
+            padding: EdgeInsets.fromLTRB(12, (_isLoading ? 0 : widget.topPadding + 10), 12, 8),
+            itemCount: _games.length + (widget.parent.hasActiveFilters() ? 1 : 0),
+            itemBuilder: (context, index) {
+              int gameIndex = index;
+              if (widget.parent.hasActiveFilters()) {
+                if (index == 0) return widget.parent.buildActiveFiltersRow(context);
+                gameIndex = index - 1;
+              }
+              return _buildUpcomingCard(context, _games[gameIndex]);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUpcomingCard(BuildContext context, Game game) {
+    final l10n = AppLocalizations.of(context)!;
+    
+    Widget buildPlatforms() {
+      if (game.plataformas.isEmpty) return const SizedBox.shrink();
+      
+      const int maxVisible = 3;
+      final visiblePlatforms = game.plataformas.take(maxVisible).toList();
+      final remainingCount = game.plataformas.length - maxVisible;
+
+      return Row(
+        children: [
+          Icon(Icons.gamepad, size: 12, color: Colors.grey.shade600),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              visiblePlatforms.join(', ') + (remainingCount > 0 ? ' +$remainingCount' : ''),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
             ),
+          ),
+        ],
+      );
+    }
+    
+    Widget _buildTypeLabel(String tipo) {
+       if (tipo.toLowerCase() == 'dlc') {
+         return Container(
+           margin: const EdgeInsets.only(bottom: 6),
+           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+           decoration: BoxDecoration(
+             color: Colors.orangeAccent.withOpacity(0.2),
+             borderRadius: BorderRadius.circular(4),
+             border: Border.all(color: Colors.orangeAccent.withOpacity(0.5), width: 1),
+           ),
+           child: const Text('DLC', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orangeAccent)),
+         );
+       }
+       if (tipo.toLowerCase() == 'game' || tipo.toLowerCase() == 'upcoming') {
+          return Container(
+           margin: const EdgeInsets.only(bottom: 6),
+           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+           decoration: BoxDecoration(
+             color: Colors.greenAccent.withOpacity(0.2),
+             borderRadius: BorderRadius.circular(4),
+             border: Border.all(color: Colors.greenAccent.withOpacity(0.5), width: 1),
+           ),
+           child: const Text('GAME', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.greenAccent)),
+         );
+       }
+       return const SizedBox.shrink();
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF2A203B), 
+            const Color(0xFF151921),
           ],
+        ),
+        border: Border.all(color: Colors.purpleAccent.withOpacity(0.15), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.4),
+            blurRadius: 12,
+            offset: const Offset(0, 6)
+          ),
+        ]
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            Navigator.push(context, MaterialPageRoute(builder: (context) => GameDetailPage(game: game)));
+          },
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 140, 
+                height: 90, 
+                child: Hero( 
+                  tag: 'game_img_${game.slug}', 
+                  child: ClipRRect( 
+                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
+                    child: game.imgPrincipal.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: game.imgPrincipal,
+                            fit: BoxFit.cover,
+                            memCacheWidth: 400,
+                            errorWidget: (context, url, error) => Container(color: const Color(0xFF151921), child: const Icon(Icons.broken_image, color: Colors.grey)),
+                            placeholder: (context, url) => Container(color: const Color(0xFF151921)),
+                          )
+                        : Container(color: const Color(0xFF151921), child: const Icon(Icons.videogame_asset, color: Colors.grey)),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        game.titulo,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white, height: 1.1),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(Icons.calendar_month, size: 12, color: Colors.purpleAccent.shade100),
+                          const SizedBox(width: 4),
+                          Text(
+                            game.fechaLanzamiento.isNotEmpty ? game.fechaLanzamiento : 'TBA',
+                            style: TextStyle(fontSize: 12, color: Colors.purpleAccent.shade100, fontWeight: FontWeight.bold),
+                          ),
+                          const Spacer(),
+                          _buildTypeLabel(game.tipo),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      buildPlatforms(),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -970,7 +1311,7 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
   bool _isLoading = false;
   bool _hasMore = true;
   int _page = 0;
-  final int _limit = 50; // CAMBIADO DE 20 A 50
+  final int _limit = 50; 
 
   @override
   bool get wantKeepAlive => true; 
@@ -1015,6 +1356,7 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
         platform: widget.parent.selectedPlatform,
         tipo: widget.tipo, 
         sortBy: widget.parent.selectedSort,
+        fastMode: true, // OPTIMIZACION
       );
 
       if (!mounted) return;
@@ -1121,6 +1463,30 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
     if (game.metacritic != null) {
       scoreColor = _getScoreColor(game.metacritic!);
     }
+    
+    // LÓGICA DE PLATAFORMAS CONSOLIDADA (IGUAL QUE EN UPCOMING)
+    Widget buildPlatforms() {
+      if (game.plataformas.isEmpty) return const SizedBox.shrink();
+      
+      const int maxVisible = 3;
+      final visiblePlatforms = game.plataformas.take(maxVisible).toList();
+      final remainingCount = game.plataformas.length - maxVisible;
+
+      return Row(
+        children: [
+          Icon(Icons.gamepad, size: 12, color: Colors.grey.shade600),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              visiblePlatforms.join(', ') + (remainingCount > 0 ? ' +$remainingCount' : ''),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+            ),
+          ),
+        ],
+      );
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -1219,22 +1585,10 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
                              ),
                         ],
                       ),
+                      // PLATAFORMAS CON LA LÓGICA UNIFICADA
                       if (game.plataformas.isNotEmpty) ...[
                         const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Icon(Icons.gamepad, size: 12, color: Colors.grey.shade600),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                game.plataformas.take(3).join(', '),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                              ),
-                            ),
-                          ],
-                        ),
+                        buildPlatforms(),
                       ]
                     ],
                   ),

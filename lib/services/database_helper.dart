@@ -11,6 +11,9 @@ class DatabaseHelper {
   static int insertDelay = 30;
   static bool turboMode = false;
 
+  // Palabras clave para filtrar contenido adulto
+  static const List<String> _adultKeywords = ['%sex%', '%hentai%', '%cum%', '%porn%', '%erotic%', '%adult%'];
+
   DatabaseHelper._init();
 
   Future<Database> get database async {
@@ -28,7 +31,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 9, 
+      version: 10, 
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -61,13 +64,28 @@ class DatabaseHelper {
     )
     ''');
     
+    // Tabla upcoming_games COMPLETA
     await db.execute('''
     CREATE TABLE IF NOT EXISTS upcoming_games (
       slug TEXT PRIMARY KEY,
       titulo TEXT NOT NULL,
+      tipo TEXT DEFAULT 'upcoming',
+      descripcion_corta TEXT,
       fecha_lanzamiento TEXT,
+      storage TEXT,
+      generos TEXT,
+      plataformas TEXT,
       img_principal TEXT,
+      galeria TEXT,
+      idiomas TEXT,
+      idiomas_voces TEXT, 
+      idiomas_textos TEXT, 
+      metacritic INTEGER,
       tiendas TEXT,
+      videos TEXT,
+      desarrolladores TEXT,
+      editores TEXT,
+      cleanTitle TEXT,
       releaseDateTs INTEGER
     )
     ''');
@@ -103,68 +121,14 @@ class DatabaseHelper {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 5) {
-      await db.execute('DROP TABLE IF EXISTS games');
-      await db.execute('DROP TABLE IF EXISTS meta_filters');
-      await _createDB(db, newVersion);
-      return;
-    }
-    
-    if (oldVersion < 6) {
-      await db.execute('CREATE TABLE IF NOT EXISTS platforms_list (name TEXT PRIMARY KEY)');
-    }
-    if (oldVersion < 7) {
-       await db.execute('''
-        CREATE TABLE IF NOT EXISTS upcoming_games (
+    if (oldVersion < 10) {
+      debugPrint("Upgrading DB to v10: Aligning upcoming_games schema with games schema...");
+      await db.execute('DROP TABLE IF EXISTS upcoming_games');
+      await db.execute('''
+        CREATE TABLE upcoming_games (
           slug TEXT PRIMARY KEY,
           titulo TEXT NOT NULL,
-          fecha_lanzamiento TEXT,
-          img_principal TEXT,
-          tiendas TEXT,
-          releaseDateTs INTEGER
-        )
-       ''');
-    }
-
-    if (oldVersion < 8) {
-      debugPrint("Upgrading DB to v8: Applying Composite Primary Key...");
-      await db.execute('DROP TABLE IF EXISTS games');
-      // En v8 se creó con un esquema sin los nuevos campos
-      await db.execute('''
-        CREATE TABLE games (
-          slug TEXT,
-          titulo TEXT NOT NULL,
-          tipo TEXT DEFAULT 'game', 
-          descripcion_corta TEXT,
-          fecha_lanzamiento TEXT,
-          storage TEXT,
-          generos TEXT,
-          plataformas TEXT,
-          img_principal TEXT,
-          galeria TEXT,
-          idiomas TEXT,
-          idiomas_voces TEXT, 
-          idiomas_textos TEXT, 
-          metacritic INTEGER,
-          tiendas TEXT,
-          cleanTitle TEXT,
-          releaseDateTs INTEGER,
-          PRIMARY KEY (slug, releaseDateTs)
-        )
-      ''');
-      await _createIndices(db);
-    }
-
-    if (oldVersion < 9) {
-      debugPrint("Upgrading DB to v9: Adding videos, developers and publishers...");
-      // Recreamos la tabla games para incluir los nuevos campos de forma limpia
-      await db.execute('DROP TABLE IF EXISTS games');
-      
-      await db.execute('''
-        CREATE TABLE games (
-          slug TEXT,
-          titulo TEXT NOT NULL,
-          tipo TEXT DEFAULT 'game', 
+          tipo TEXT DEFAULT 'upcoming',
           descripcion_corta TEXT,
           fecha_lanzamiento TEXT,
           storage TEXT,
@@ -181,11 +145,10 @@ class DatabaseHelper {
           desarrolladores TEXT,
           editores TEXT,
           cleanTitle TEXT,
-          releaseDateTs INTEGER,
-          PRIMARY KEY (slug, releaseDateTs)
+          releaseDateTs INTEGER
         )
       ''');
-      await _createIndices(db);
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_upcoming_date ON upcoming_games(releaseDateTs)'); 
     }
   }
 
@@ -429,18 +392,159 @@ class DatabaseHelper {
     debugPrint('Inserción masiva finalizada.');
   }
 
-  Future<List<Game>> getGames({int limit = 20, int offset = 0, String? query, String? voiceLanguage, String? textLanguage, String? year, String? genre, String? platform, String? tipo, String sortBy = 'date'}) async {
+  // --- NUEVO: Inserción de próximos juegos COMPLETA ---
+  Future<void> insertUpcomingGames(List<Game> games) async {
+    if (kIsWeb) return;
+    final db = await database;
+    
+    // Limpiamos la tabla antes de insertar lo nuevo
+    await db.transaction((txn) async {
+      await txn.delete('upcoming_games');
+      final batch = txn.batch();
+      for (var game in games) {
+        batch.insert('upcoming_games', {
+          'slug': game.slug,
+          'titulo': game.titulo,
+          'tipo': game.tipo, // USAMOS EL TIPO REAL
+          'descripcion_corta': game.descripcionCorta,
+          'fecha_lanzamiento': game.fechaLanzamiento,
+          'storage': game.storage,
+          'generos': jsonEncode(game.generos),
+          'plataformas': jsonEncode(game.plataformas),
+          'img_principal': game.imgPrincipal,
+          'galeria': jsonEncode(game.galeria),
+          'idiomas': jsonEncode({'voces': game.idiomas.voces, 'textos': game.idiomas.textos}),
+          'idiomas_voces': jsonEncode(game.idiomas.voces),
+          'idiomas_textos': jsonEncode(game.idiomas.textos),
+          'metacritic': game.metacritic,
+          'tiendas': jsonEncode(game.tiendas.map((t) => {'tienda': t.tienda, 'id_externo': t.idExterno, 'url': t.url, 'is_free': t.isFree}).toList()),
+          'videos': jsonEncode(game.videos.map((v) => v.toJson()).toList()),
+          'desarrolladores': jsonEncode(game.desarrolladores),
+          'editores': jsonEncode(game.editores),
+          'cleanTitle': game.cleanTitle,
+          'releaseDateTs': game.releaseDateTs
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  // --- NUEVO: Obtener próximos juegos CON FILTROS Y PAGINACIÓN ---
+  Future<List<Game>> getUpcomingGames({
+    int limit = 50,
+    int offset = 0,
+    String? query,
+    String? voiceLanguage,
+    String? textLanguage,
+    String? year,
+    String? genre,
+    String? platform,
+    String? tipo,
+    String sortBy = 'date',
+    bool isAdult = true,
+    bool fastMode = false // OPTIMIZACIÓN
+  }) async {
+    if (kIsWeb) return [];
+    final db = await database;
+    try {
+      String? whereClause;
+      List<dynamic> whereArgs = [];
+
+      void addCondition(String clause, dynamic arg) { if (whereClause != null) whereClause = '$whereClause AND $clause'; else whereClause = clause; whereArgs.add(arg); }
+
+      if (query != null && query.isNotEmpty) {
+        String cleanQuery = Game.normalize(query);
+        addCondition('cleanTitle LIKE ?', '%$cleanQuery%');
+      }
+
+      if (!isAdult) {
+        for (var keyword in _adultKeywords) {
+          addCondition('lower(titulo) NOT LIKE ?', keyword);
+        }
+      }
+
+      if (voiceLanguage != null && voiceLanguage != 'Cualquiera') addCondition('idiomas_voces LIKE ?', '%${jsonEncode(voiceLanguage)}%');
+      if (textLanguage != null && textLanguage != 'Cualquiera') addCondition('idiomas_textos LIKE ?', '%${jsonEncode(textLanguage)}%');
+      if (year != null && year != 'Cualquiera') addCondition('fecha_lanzamiento LIKE ?', '$year%');
+      if (genre != null && genre != 'Cualquiera') addCondition('generos LIKE ?', '%"$genre"%'); 
+      if (platform != null && platform != 'Cualquiera') addCondition('plataformas LIKE ?', '%"$platform"%');
+
+      String orderBy = 'CASE WHEN releaseDateTs = 0 THEN 1 ELSE 0 END ASC, releaseDateTs ASC';
+      if (sortBy == 'score') {
+        orderBy = 'metacritic DESC, releaseDateTs ASC';
+      }
+
+      final List<String>? columns = fastMode 
+          ? ['slug', 'titulo', 'tipo', 'fecha_lanzamiento', 'img_principal', 'metacritic', 'plataformas', 'releaseDateTs'] 
+          : null;
+
+      final List<Map<String, dynamic>> maps = await db.query(
+        'upcoming_games', 
+        columns: columns,
+        where: whereClause, 
+        whereArgs: whereArgs.isNotEmpty ? whereArgs : null, 
+        limit: limit, 
+        offset: offset, 
+        orderBy: orderBy
+      );
+
+      return maps.map((dbMap) {
+          Map<String, dynamic> jsonMap = Map.of(dbMap);
+          try {
+            // OPTIMIZACIÓN: Solo parseamos lo necesario si estamos en fastMode
+            if (!fastMode) {
+              jsonMap['generos'] = jsonDecode(dbMap['generos'] ?? '[]');
+              jsonMap['galeria'] = jsonDecode(dbMap['galeria'] ?? '[]');
+              jsonMap['idiomas'] = jsonDecode(dbMap['idiomas'] ?? '{}');
+              jsonMap['tiendas'] = jsonDecode(dbMap['tiendas'] ?? '[]');
+              jsonMap['videos'] = jsonDecode(dbMap['videos'] ?? '[]');
+              jsonMap['desarrolladores'] = jsonDecode(dbMap['desarrolladores'] ?? '[]');
+              jsonMap['editores'] = jsonDecode(dbMap['editores'] ?? '[]');
+            }
+            // Plataformas siempre se necesita para las tarjetas
+            jsonMap['plataformas'] = jsonDecode(dbMap['plataformas'] ?? '[]');
+          } catch (e) {
+            debugPrint("Error parseando JSON en upcoming: $e");
+          }
+          return Game.fromJson(jsonMap);
+      }).toList();
+    } catch (e) {
+      debugPrint("Error leyendo upcoming games: $e");
+      return []; 
+    }
+  }
+
+  Future<List<Game>> getGames({
+    int limit = 20, 
+    int offset = 0, 
+    String? query, 
+    String? voiceLanguage, 
+    String? textLanguage, 
+    String? year, 
+    String? genre, 
+    String? platform, 
+    String? tipo, 
+    String sortBy = 'date', 
+    bool isAdult = true,
+    bool fastMode = false // OPTIMIZACIÓN
+  }) async {
     if (kIsWeb) return [];
     final db = await database;
     String? whereClause;
     List<dynamic> whereArgs = [];
 
+    void addCondition(String clause, dynamic arg) { if (whereClause != null) whereClause = '$whereClause AND $clause'; else whereClause = clause; whereArgs.add(arg); }
+
     if (query != null && query.isNotEmpty) {
       String cleanQuery = Game.normalize(query);
-      whereClause = 'cleanTitle LIKE ?';
-      whereArgs.add('%$cleanQuery%');
+      addCondition('cleanTitle LIKE ?', '%$cleanQuery%');
     }
-    void addCondition(String clause, dynamic arg) { if (whereClause != null) whereClause = '$whereClause AND $clause'; else whereClause = clause; whereArgs.add(arg); }
+
+    if (!isAdult) {
+      for (var keyword in _adultKeywords) {
+        addCondition('lower(titulo) NOT LIKE ?', keyword);
+      }
+    }
 
     if (tipo != null) addCondition('tipo = ?', tipo);
     if (voiceLanguage != null && voiceLanguage != 'Cualquiera') addCondition('idiomas_voces LIKE ?', '%${jsonEncode(voiceLanguage)}%');
@@ -453,18 +557,33 @@ class DatabaseHelper {
     if (sortBy == 'score') orderByClause = 'metacritic DESC, releaseDateTs DESC'; 
 
     try {
-      final List<Map<String, dynamic>> maps = await db.query('games', where: whereClause, whereArgs: whereArgs.isNotEmpty ? whereArgs : null, limit: limit, offset: offset, orderBy: orderByClause);
+      final List<String>? columns = fastMode 
+          ? ['slug', 'titulo', 'tipo', 'fecha_lanzamiento', 'img_principal', 'metacritic', 'plataformas', 'releaseDateTs'] 
+          : null;
+
+      final List<Map<String, dynamic>> maps = await db.query(
+        'games', 
+        columns: columns,
+        where: whereClause, 
+        whereArgs: whereArgs.isNotEmpty ? whereArgs : null, 
+        limit: limit, 
+        offset: offset, 
+        orderBy: orderByClause
+      );
+      
       return maps.map((dbMap) {
           Map<String, dynamic> jsonMap = Map.of(dbMap);
           try {
-            jsonMap['generos'] = jsonDecode(dbMap['generos'] ?? '[]');
+            if (!fastMode) {
+              jsonMap['generos'] = jsonDecode(dbMap['generos'] ?? '[]');
+              jsonMap['galeria'] = jsonDecode(dbMap['galeria'] ?? '[]');
+              jsonMap['idiomas'] = jsonDecode(dbMap['idiomas'] ?? '{}');
+              jsonMap['tiendas'] = jsonDecode(dbMap['tiendas'] ?? '[]');
+              jsonMap['videos'] = jsonDecode(dbMap['videos'] ?? '[]');
+              jsonMap['desarrolladores'] = jsonDecode(dbMap['desarrolladores'] ?? '[]');
+              jsonMap['editores'] = jsonDecode(dbMap['editores'] ?? '[]');
+            }
             jsonMap['plataformas'] = jsonDecode(dbMap['plataformas'] ?? '[]');
-            jsonMap['galeria'] = jsonDecode(dbMap['galeria'] ?? '[]');
-            jsonMap['idiomas'] = jsonDecode(dbMap['idiomas'] ?? '{}');
-            jsonMap['tiendas'] = jsonDecode(dbMap['tiendas'] ?? '[]');
-            jsonMap['videos'] = jsonDecode(dbMap['videos'] ?? '[]');
-            jsonMap['desarrolladores'] = jsonDecode(dbMap['desarrolladores'] ?? '[]');
-            jsonMap['editores'] = jsonDecode(dbMap['editores'] ?? '[]');
           } catch (e) {}
           return Game.fromJson(jsonMap);
       }).toList();
@@ -479,19 +598,30 @@ class DatabaseHelper {
       String whereClause = 'slug = ?';
       List<dynamic> args = [slug];
 
-      // Si nos pasan un año, filtramos también por fecha de lanzamiento
       if (year != null && year.isNotEmpty) {
         whereClause += ' AND fecha_lanzamiento LIKE ?';
-        args.add('$year%'); // Busca "1998-01-21" usando "1998%"
+        args.add('$year%'); 
       }
 
-      final List<Map<String, dynamic>> maps = await db.query(
+      // 1. Buscamos primero en la tabla principal 'games'
+      List<Map<String, dynamic>> maps = await db.query(
         'games',
         where: whereClause,
         whereArgs: args,
         orderBy: 'releaseDateTs DESC', 
         limit: 1,
       );
+      
+      // 2. Si no está en 'games', buscamos en 'upcoming_games'
+      if (maps.isEmpty) {
+         maps = await db.query(
+          'upcoming_games',
+          where: whereClause,
+          whereArgs: args,
+          orderBy: 'releaseDateTs ASC', 
+          limit: 1,
+        );
+      }
       
       if (maps.isNotEmpty) {
           Map<String, dynamic> jsonMap = Map.of(maps.first);

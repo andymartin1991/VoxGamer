@@ -52,7 +52,7 @@ class Game {
       titulo: json['titulo'] ?? 'Sin título',
       tipo: json['tipo'] ?? 'game',
       descripcionCorta: _cleanDescription(json['descripcion_corta']),
-      fechaLanzamiento: json['fecha_lanzamiento'] ?? '',
+      fechaLanzamiento: _cleanDate(json['fecha_lanzamiento']), // Limpiamos la fecha
       storage: json['storage'],
       generos: List<String>.from(json['generos'] ?? []),
       plataformas: List<String>.from(json['plataformas'] ?? []), 
@@ -71,6 +71,13 @@ class Game {
       desarrolladores: List<String>.from(json['desarrolladores'] ?? []),
       editores: List<String>.from(json['editores'] ?? []),
     );
+  }
+
+  static String _cleanDate(String? date) {
+    if (date == null) return '';
+    if (date.toLowerCase() == 'null') return ''; // El fix clave
+    if (date.trim().isEmpty) return '';
+    return date;
   }
 
   static String _cleanDescription(String? text) {
@@ -108,6 +115,8 @@ class Game {
 
   static int _parseDate(String? dateStr) {
     if (dateStr == null || dateStr.isEmpty) return 0;
+    // Si viene "null" literal, devolvemos 0 (para que se ordene al final)
+    if (dateStr.toLowerCase() == 'null') return 0;
     try {
       return DateTime.parse(dateStr).millisecondsSinceEpoch;
     } catch (e) {

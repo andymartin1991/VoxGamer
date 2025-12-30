@@ -7,6 +7,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import '../models/game.dart';
+import '../services/data_service.dart';
 
 class GameDetailPage extends StatefulWidget {
   final Game game;
@@ -18,27 +19,54 @@ class GameDetailPage extends StatefulWidget {
 }
 
 class _GameDetailPageState extends State<GameDetailPage> {
+  late Game _game;
+  final DataService _dataService = DataService();
+  
   String? _translatedText;
   bool _isTranslating = false;
   bool _showingTranslation = false;
   final GoogleTranslator _translator = GoogleTranslator();
 
+  @override
+  void initState() {
+    super.initState();
+    _game = widget.game;
+    _loadFullGameDetails();
+  }
+
+  Future<void> _loadFullGameDetails() async {
+    // Intentamos cargar los detalles completos si venimos de una lista optimizada
+    String? year;
+    if (_game.fechaLanzamiento.length >= 4) {
+      year = _game.fechaLanzamiento.substring(0, 4);
+    }
+    
+    final fullGame = await _dataService.getGameBySlug(_game.slug, year: year);
+    if (fullGame != null && mounted) {
+      setState(() {
+        _game = fullGame;
+      });
+    }
+  }
+
   Future<void> _launchUrlInBrowser(BuildContext context, String url) async {
+    final l10n = AppLocalizations.of(context)!;
     try {
       final Uri uri = Uri.parse(url);
       if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $url')),
+            SnackBar(content: Text('${l10n.errorGeneric}$url')),
           );
         }
       }
     } catch (e) {
-      debugPrint('Error: $e');
+      debugPrint('${l10n.errorGeneric}$e');
     }
   }
 
   Future<void> _handleTranslation() async {
+    final l10n = AppLocalizations.of(context)!;
     if (_showingTranslation) {
       setState(() => _showingTranslation = false);
       return;
@@ -52,7 +80,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
     try {
       final locale = Localizations.localeOf(context);
       final targetLang = locale.languageCode; 
-      final translation = await _translator.translate(widget.game.descripcionCorta, to: targetLang);
+      final translation = await _translator.translate(_game.descripcionCorta, to: targetLang);
 
       if (mounted) {
         setState(() {
@@ -62,26 +90,25 @@ class _GameDetailPageState extends State<GameDetailPage> {
         });
       }
     } catch (e) {
-      debugPrint('Error de traducción: $e');
+      debugPrint('${l10n.errorGeneric}$e');
       if (mounted) {
         setState(() => _isTranslating = false);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al traducir.')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.errorTranslation)));
       }
     }
   }
 
   void _shareGame() {
-    // Extraer año de la fecha (YYYY-MM-DD)
     String yearParam = '';
-    if (widget.game.fechaLanzamiento.length >= 4) {
-      final year = widget.game.fechaLanzamiento.substring(0, 4);
+    if (_game.fechaLanzamiento.length >= 4) {
+      final year = _game.fechaLanzamiento.substring(0, 4);
       yearParam = '?year=$year';
     }
 
-    final String deepLink = 'https://andymartin1991.github.io/VoxGamer/game/${widget.game.slug}$yearParam';
-    final String message = '🎮 ${widget.game.titulo}\n\n$deepLink';
+    final String deepLink = 'https://andymartin1991.github.io/VoxGamer/game/${_game.slug}$yearParam';
+    final String message = '🎮 ${_game.titulo}\n\n$deepLink';
     
-    Share.share(message, subject: widget.game.titulo);
+    Share.share(message, subject: _game.titulo);
   }
 
   Color _getScoreColor(int score) {
@@ -97,18 +124,17 @@ class _GameDetailPageState extends State<GameDetailPage> {
     final primaryColor = theme.colorScheme.primary;
 
     final List<String> allImages = [
-      if (widget.game.imgPrincipal.isNotEmpty) widget.game.imgPrincipal,
-      ...widget.game.galeria
+      if (_game.imgPrincipal.isNotEmpty) _game.imgPrincipal,
+      ..._game.galeria
     ];
 
     final descriptionToShow = _showingTranslation 
-        ? (_translatedText ?? widget.game.descripcionCorta)
-        : widget.game.descripcionCorta;
+        ? (_translatedText ?? _game.descripcionCorta)
+        : _game.descripcionCorta;
 
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          // 1. HEADER EXPANDIBLE
           SliverAppBar(
             expandedHeight: 300.0,
             pinned: true,
@@ -125,7 +151,6 @@ class _GameDetailPageState extends State<GameDetailPage> {
               onPressed: () => Navigator.pop(context),
             ),
             actions: [
-              // BOTÓN COMPARTIR
               IconButton(
                 icon: Container(
                   padding: const EdgeInsets.all(8),
@@ -143,7 +168,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
             flexibleSpace: FlexibleSpaceBar(
               titlePadding: const EdgeInsets.only(left: 16, bottom: 16, right: 16),
               title: Text(
-                widget.game.titulo,
+                _game.titulo,
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 18,
@@ -153,14 +178,12 @@ class _GameDetailPageState extends State<GameDetailPage> {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // Slider con Videos e Imágenes
                   _GameGallerySlider(
                     images: allImages, 
-                    videos: widget.game.videos,
-                    heroTagPrefix: widget.game.slug,
+                    videos: _game.videos,
+                    heroTagPrefix: _game.slug,
+                    onVideoTap: (url) => _launchUrlInBrowser(context, url),
                   ),
-                  
-                  // Gradiente para legibilidad (si el video no está activo)
                   const IgnorePointer(
                     child: DecoratedBox(
                       decoration: BoxDecoration(
@@ -178,33 +201,30 @@ class _GameDetailPageState extends State<GameDetailPage> {
             ),
           ),
 
-          // 2. CONTENIDO
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.all(20.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // STATS ROW (Fecha, Nota, Storage)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _buildStatItem(Icons.calendar_today, l10n.release, widget.game.fechaLanzamiento.isNotEmpty ? widget.game.fechaLanzamiento : 'N/A'),
-                      if (widget.game.metacritic != null)
-                        _buildStatItem(Icons.star, l10n.metascore, widget.game.metacritic.toString(), color: _getScoreColor(widget.game.metacritic!)),
-                      _buildStatItem(Icons.sd_storage, l10n.storage, widget.game.storage ?? 'N/A'),
+                      _buildStatItem(Icons.calendar_today, l10n.release, _game.fechaLanzamiento.isNotEmpty ? _game.fechaLanzamiento : 'N/A'),
+                      if (_game.metacritic != null)
+                        _buildStatItem(Icons.star, l10n.metascore, _game.metacritic.toString(), color: _getScoreColor(_game.metacritic!)),
+                      _buildStatItem(Icons.sd_storage, l10n.storage, _game.storage ?? 'N/A'),
                     ],
                   ),
                   const SizedBox(height: 24),
                   const Divider(color: Colors.white10),
                   const SizedBox(height: 24),
 
-                  // GÉNEROS
                   _buildSectionTitle(l10n.filterGenre),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8, runSpacing: 8,
-                    children: widget.game.generos.map((g) => Chip(
+                    children: _game.generos.map((g) => Chip(
                       label: Text(g, style: const TextStyle(fontSize: 12)),
                       backgroundColor: const Color(0xFF1E232F),
                       side: BorderSide.none,
@@ -214,13 +234,12 @@ class _GameDetailPageState extends State<GameDetailPage> {
                   
                   const SizedBox(height: 24),
                   
-                  // PLATAFORMAS
                   _buildSectionTitle(l10n.filterPlatform), 
                   const SizedBox(height: 8),
-                  if (widget.game.plataformas.isNotEmpty)
+                  if (_game.plataformas.isNotEmpty)
                     Wrap(
                       spacing: 8, runSpacing: 8,
-                      children: widget.game.plataformas.map((p) => Container(
+                      children: _game.plataformas.map((p) => Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
                           color: primaryColor.withOpacity(0.1),
@@ -231,15 +250,13 @@ class _GameDetailPageState extends State<GameDetailPage> {
                       )).toList(),
                     ),
 
-                  // --- CRÉDITOS (Desarrolladores y Editores) ---
-                  if (widget.game.desarrolladores.isNotEmpty || widget.game.editores.isNotEmpty) ...[
+                  if (_game.desarrolladores.isNotEmpty || _game.editores.isNotEmpty) ...[
                      const SizedBox(height: 24),
                      _buildCreditsSection(context),
                   ],
 
                   const SizedBox(height: 32),
 
-                  // DESCRIPCIÓN
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -253,22 +270,24 @@ class _GameDetailPageState extends State<GameDetailPage> {
                       ),
                     ],
                   ),
-                  Text(
-                    descriptionToShow,
-                    style: const TextStyle(fontSize: 15, height: 1.6, color: Color(0xFFE0E0E0)),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: Text(
+                      descriptionToShow.isNotEmpty ? descriptionToShow : "Sin descripción disponible.", 
+                      key: ValueKey(descriptionToShow),
+                      style: const TextStyle(fontSize: 15, height: 1.6, color: Color(0xFFE0E0E0)),
+                    ),
                   ),
 
                   const SizedBox(height: 32),
 
-                  // IDIOMAS
                   _buildSectionTitle(l10n.languages),
                   const SizedBox(height: 12),
                   _buildLanguageGrid(context),
 
                   const SizedBox(height: 40),
 
-                  // TIENDAS (GRID)
-                  if (widget.game.tiendas.isNotEmpty) ...[
+                  if (_game.tiendas.isNotEmpty) ...[
                     _buildSectionTitle(l10n.availableStores),
                     const SizedBox(height: 16),
                     GridView.builder(
@@ -280,9 +299,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
                         crossAxisSpacing: 12,
                         mainAxisSpacing: 12,
                       ),
-                      itemCount: widget.game.tiendas.length,
+                      itemCount: _game.tiendas.length,
                       itemBuilder: (context, index) {
-                        final tienda = widget.game.tiendas[index];
+                        final tienda = _game.tiendas[index];
                         return ElevatedButton(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF1E232F),
@@ -315,16 +334,17 @@ class _GameDetailPageState extends State<GameDetailPage> {
   }
 
   Widget _buildCreditsSection(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionTitle('Créditos'),
+        _buildSectionTitle(l10n.credits),
         const SizedBox(height: 12),
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
-             ...widget.game.desarrolladores.map((dev) => Chip(
+             ..._game.desarrolladores.map((dev) => Chip(
                avatar: const Icon(Icons.code, size: 14, color: Colors.cyanAccent),
                label: Text(dev, style: const TextStyle(fontSize: 12, color: Colors.cyanAccent)),
                backgroundColor: Colors.cyan.withOpacity(0.1),
@@ -332,7 +352,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
                padding: EdgeInsets.zero,
                visualDensity: VisualDensity.compact,
              )),
-             ...widget.game.editores.map((pub) => Chip(
+             ..._game.editores.map((pub) => Chip(
                avatar: const Icon(Icons.business, size: 14, color: Colors.purpleAccent),
                label: Text(pub, style: const TextStyle(fontSize: 12, color: Colors.purpleAccent)),
                backgroundColor: Colors.deepPurple.withOpacity(0.1),
@@ -370,14 +390,14 @@ class _GameDetailPageState extends State<GameDetailPage> {
   }
 
   Widget _buildLanguageGrid(BuildContext context) {
-    final allLanguages = {...widget.game.idiomas.textos, ...widget.game.idiomas.voces}.toList()..sort();
+    final allLanguages = {..._game.idiomas.textos, ..._game.idiomas.voces}.toList()..sort();
     if (allLanguages.isEmpty) return const Text('N/A', style: TextStyle(color: Colors.grey));
 
     return Wrap(
       spacing: 8.0,
       runSpacing: 8.0,
       children: allLanguages.map((lang) {
-        final hasAudio = widget.game.idiomas.voces.any((v) => v.trim().toLowerCase() == lang.trim().toLowerCase());
+        final hasAudio = _game.idiomas.voces.any((v) => v.trim().toLowerCase() == lang.trim().toLowerCase());
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
@@ -402,11 +422,13 @@ class _GameGallerySlider extends StatefulWidget {
   final List<String> images;
   final List<Video> videos;
   final String heroTagPrefix;
+  final Function(String) onVideoTap;
 
   const _GameGallerySlider({
     required this.images,
     required this.videos,
     required this.heroTagPrefix,
+    required this.onVideoTap,
   });
 
   @override
@@ -429,17 +451,17 @@ class _GameGallerySliderState extends State<_GameGallerySlider> {
           onPageChanged: (index) => setState(() => _currentIndex = index),
           itemBuilder: (context, index) {
             
-            // --- MOSTRAR VIDEO ---
+            // --- Lógica para mostrar VIDEOS primero ---
             if (index < widget.videos.length) {
               final video = widget.videos[index];
               return _InAppVideoPlayer(
-                key: ValueKey(video.url), // Para reciclar correctamente
+                key: ValueKey(video.url), 
                 videoUrl: video.url, 
                 thumbnailUrl: video.thumbnail,
               );
             }
 
-            // --- MOSTRAR IMÁGENES ---
+            // --- Lógica para mostrar IMÁGENES ---
             final imgIndex = index - widget.videos.length;
             final imageUrl = widget.images[imgIndex];
             
@@ -450,7 +472,6 @@ class _GameGallerySliderState extends State<_GameGallerySlider> {
               errorWidget: (_, __, ___) => Container(color: const Color(0xFF151921)),
             );
 
-            // HERO SOLO EN LA PRIMERA IMAGEN
             if (imgIndex == 0) {
               return Hero(
                 tag: 'game_img_${widget.heroTagPrefix}',
@@ -461,7 +482,6 @@ class _GameGallerySliderState extends State<_GameGallerySlider> {
           },
         ),
         
-        // Paginador (Puntos)
         if (totalCount > 1)
           Positioned(
             bottom: 16, 
@@ -561,6 +581,7 @@ class _InAppVideoPlayerState extends State<_InAppVideoPlayer> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     if (_isPlaying && _chewieController != null) {
       return Chewie(controller: _chewieController!);
     }
@@ -575,7 +596,7 @@ class _InAppVideoPlayerState extends State<_InAppVideoPlayer> {
             fit: BoxFit.cover,
             errorWidget: (_, __, ___) => Container(color: Colors.black),
           ),
-          Container(color: Colors.black38), // Overlay
+          Container(color: Colors.black38), 
           
           Center(
             child: _isInitializing
@@ -595,14 +616,14 @@ class _InAppVideoPlayerState extends State<_InAppVideoPlayer> {
           ),
           
           if (!_isInitializing)
-            const Positioned(
+            Positioned(
               bottom: 40,
               left: 10,
               right: 10,
               child: Text(
-                "VER TRAILER",
+                l10n.viewTrailer,
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: const TextStyle(
                   color: Colors.white, 
                   fontWeight: FontWeight.bold,
                   shadows: [Shadow(color: Colors.black, blurRadius: 5)],

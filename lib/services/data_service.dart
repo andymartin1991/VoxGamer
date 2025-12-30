@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:archive/archive.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/game.dart';
 import 'database_helper.dart';
 
@@ -20,7 +21,8 @@ class SyncResult {
 
 class DataService {
   static const String _dataUrl = 'https://raw.githubusercontent.com/andymartin1991/SteamDataScraper/main/global_games.json.gz';
-  static const String _upcomingDataUrl = 'https://raw.githubusercontent.com/andymartin1991/SteamDataScraper/main/upcoming_games.json.gz';
+  // CAMBIADO: Nombre del fichero actualizado
+  static const String _upcomingDataUrl = 'https://raw.githubusercontent.com/andymartin1991/SteamDataScraper/main/global_proximos_games.json.gz';
   
   static const String _localFileName = 'games_cache.json.gz';
 
@@ -185,8 +187,58 @@ class DataService {
     await _dbHelper.saveMetaFilters(result.genres, result.voices, result.texts, result.years, result.platforms);
   }
 
-  Future<void> _syncUpcoming(Function(double progress)? onProgress) async {
-     debugPrint("Sincronizando próximos lanzamientos...");
+  // --- NUEVA FUNCIÓN PARA PRÓXIMOS JUEGOS ---
+  Future<void> syncUpcomingGames() async {
+    if (kIsWeb) return; 
+    
+    debugPrint("Iniciando sync de próximos lanzamientos...");
+    try {
+      final uri = Uri.parse('$_upcomingDataUrl?t=${DateTime.now().millisecondsSinceEpoch}');
+      final response = await http.get(uri);
+      
+      if (response.statusCode == 200) {
+        final SyncResult result = await compute(_decompressAndParse, response.bodyBytes);
+        debugPrint("Parseados ${result.games.length} próximos juegos. Insertando...");
+        await _dbHelper.insertUpcomingGames(result.games);
+        debugPrint("Sync próximos completada.");
+      } else {
+        debugPrint("Error descargando próximos juegos: ${response.statusCode}");
+      }
+    } catch (e) {
+      debugPrint("Error syncUpcomingGames: $e");
+    }
+  }
+  
+  // --- ACTUALIZADO: AHORA ACEPTA FILTROS ---
+  Future<List<Game>> getUpcomingGames({
+    String? query,
+    String? voiceLanguage,
+    String? textLanguage,
+    String? year,
+    String? genre,
+    String? platform,
+    String? tipo,
+    String sortBy = 'date',
+    bool fastMode = false, // OPTIMIZACIÓN
+  }) async {
+    if (kIsWeb) return []; 
+    
+    final prefs = await SharedPreferences.getInstance();
+    final isAdult = prefs.getBool('is_adult') ?? false;
+
+    // Pasamos todos los argumentos a DatabaseHelper
+    return await _dbHelper.getUpcomingGames(
+      isAdult: isAdult,
+      query: query,
+      voiceLanguage: voiceLanguage,
+      textLanguage: textLanguage,
+      year: year,
+      genre: genre,
+      platform: platform,
+      tipo: tipo,
+      sortBy: sortBy,
+      fastMode: fastMode,
+    );
   }
   
   static SyncResult _decompressAndParse(Uint8List compressedBytes) {
@@ -260,9 +312,25 @@ class DataService {
     String? platform,
     String? tipo,
     String sortBy = 'date',
+    bool fastMode = false, // OPTIMIZACIÓN
   }) async {
+    // Obtenemos preferencia de contenido adulto
+    final prefs = await SharedPreferences.getInstance();
+    final isAdult = prefs.getBool('is_adult') ?? false;
+
     if (kIsWeb) {
       var filtered = _webCache;
+
+      if (!isAdult) {
+        final keywords = ['sex', 'hentai', 'cum', 'porn', 'erotic', 'adult'];
+        filtered = filtered.where((g) {
+          final titleLower = g.titulo.toLowerCase();
+          for (var k in keywords) {
+            if (titleLower.contains(k)) return false;
+          }
+          return true;
+        }).toList();
+      }
 
       if (tipo != null) {
         filtered = filtered.where((g) => g.tipo == tipo).toList();
@@ -315,6 +383,8 @@ class DataService {
           platform: platform,
           tipo: tipo,
           sortBy: sortBy,
+          isAdult: isAdult, // Pasamos el flag
+          fastMode: fastMode,
         );
     }
   }

@@ -1,8 +1,8 @@
 # VoxGamer 🎮
 
-**El Nexo del Jugador.**
+**El Nexo del Jugador: Tu Enciclopedia de Videojuegos Offline.**
 
-VoxGamer es una aplicación Flutter de vanguardia diseñada para ser la enciclopedia definitiva de videojuegos en tu bolsillo. Combina la potencia de **Steam y RAWG** en una experiencia **Offline-First** ultrarrápida. Con una estética "Digital Arcade Dark", VoxGamer permite explorar, filtrar y descubrir decenas de miles de títulos sin necesidad de una conexión permanente a internet.
+VoxGamer es una aplicación móvil de vanguardia desarrollada en Flutter, diseñada para ofrecer acceso instantáneo y offline a una base de datos masiva de videojuegos (Steam/RAWG). Gracias a su arquitectura **Offline-First** y optimizaciones de bajo nivel, permite explorar, filtrar y descubrir decenas de miles de títulos con una fluidez extrema.
 
 <p align="center">
   <img src="assets/icon/app_logo.png" width="120" alt="VoxGamer Logo">
@@ -12,104 +12,80 @@ VoxGamer es una aplicación Flutter de vanguardia diseñada para ser la enciclop
 
 ## ✨ Características Principales
 
-### 🧠 Arquitectura Offline-First & High Performance
-*   **Base de Datos Local Masiva:** Descarga y almacena localmente metadatos de miles de juegos utilizando **SQLite** (`sqflite`).
-*   **Caché de Imágenes Inteligente:** 
-    *   Integración de `cached_network_image` y `flutter_cache_manager`.
-    *   Las carátulas y capturas se guardan en el dispositivo para una navegación offline fluida.
-    *   Optimización de memoria RAM (`memCacheWidth`) para listados infinitos sin caídas de rendimiento.
-*   **Sincronización Inteligente en Segundo Plano:**
-    *   Utiliza `flutter_background_service` para procesar archivos masivos (`.json.gz`) sin bloquear la interfaz.
-    *   **Turbo Mode:** Motor de inserción optimizado con transacciones por lotes (chunks) y gestión dinámica de índices.
-*   **Versión de DB v9:** Estructura optimizada que incluye soporte para Videos, Desarrolladores y Editores.
+### 🚀 Rendimiento Extremo (Arquitectura FastMode)
+*   **Listados Ultrarrápidos:** Implementación de un modo de proyección de columnas SQL (`FastMode`) que permite un scroll infinito fluido reduciendo drásticamente el uso de memoria RAM y CPU.
+*   **Carga Diferida de Detalles (Lazy Loading):** Las fichas de los juegos cargan información instantánea y completan datos pesados (descripciones largas, galerías, créditos) en segundo plano de forma transparente.
+*   **Gestión Inteligente de Memoria:** Uso de `memCacheWidth` en el motor de renderizado de imágenes para evitar saturación de memoria en listas largas.
+
+### 📚 Catálogo Masivo & Organizado
+*   **Ecosistema Completo:** Navegación por pestañas dedicadas para **Juegos**, **DLCs** y **Próximos Lanzamientos**.
+*   **Sincronización Background:** Motor ETL (Extract, Transform, Load) integrado mediante `flutter_background_service` que descarga, descomprime (GZIP) y procesa bases de datos masivas sin congelar la interfaz.
+*   **Base de Datos Unificada:** Búsqueda transversal inteligente que localiza juegos tanto en el catálogo histórico como en futuros lanzamientos.
+
+### 🔍 Sistema de Filtrado "Power User"
+*   **Filtros Granulares:**
+    *   **Idiomas:** Filtra específicamente por idioma de **Voces** y **Textos**.
+    *   **Plataformas:** PC, PlayStation, Xbox, Nintendo, Android/iOS, etc.
+    *   **Metadatos:** Género, Año de lanzamiento y Puntuación.
+*   **Control de Contenido (+18):** Sistema de seguridad opcional que filtra palabras clave y contenido adulto, con verificación de edad integrada.
+*   **Ordenación Flexible:** Clasificación por Fecha de Lanzamiento (cronológica) o Metascore (calidad).
 
 ### 🎬 Experiencia Multimedia Inmersiva
-*   **Reproductor de Video Nativo (In-App):** 
-    *   Integración de `video_player` y `chewie` para ver trailers directamente en la ficha del juego sin salir de la aplicación.
-    *   Galería híbrida ("Media Strip") que combina videos e imágenes fluidamente.
-*   **Sección de Créditos Interactiva:**
-    *   Descubre juegos por **Desarrollador** o **Editor** pulsando en los chips dedicados.
+*   **Reproductor Nativo:** Visualización de tráilers integrada (`video_player` + `chewie`) directamente en la cabecera del juego.
+*   **Galería Híbrida:** Slider interactivo que combina videos y capturas de pantalla de alta resolución.
+*   **Traducción Neural:** Integración con Google Translate para traducir descripciones de juegos a tu idioma local al instante.
 
-### 🔍 Exploración y Descubrimiento Profundo
-*   **Búsqueda Instantánea:** Buscador con *debounce* y normalización de texto.
-*   **Sistema de Filtrado Avanzado:**
-    *   **Plataformas:** PC, PlayStation, Xbox, Nintendo, SEGA, etc.
-    *   **Idiomas:** Filtra específicamente por idioma de **Voces** y **Textos**.
-    *   **Metadatos:** Año de lanzamiento, Género y Puntuación.
-*   **Ordenación Flexible:** Organiza por Fecha o Metascore.
-*   **Paginación Eficiente:** Listas infinitas optimizadas con paginación de 50 elementos para un scroll continuo.
-
-### 🎨 Experiencia de Usuario "Premium" (UX/UI)
-*   **Diseño Digital Arcade Dark:** Tema oscuro profundo con acentos neón (Violeta/Cian).
-*   **Glassmorphism:** Efectos de desenfoque (*blur*) en tiempo real.
-*   **Internacionalización (i18n):** Soporte nativo para **Español** e **Inglés**.
-
-### 🔗 Integración y Utilidades
-*   **Deep Linking:** Comparte y abre juegos mediante `voxgamer://game/<slug>`.
-*   **Minijuego de Espera:** Ameniza la sincronización inicial con un *Runner* integrado.
-*   **Traducción en Tiempo Real:** Traduce descripciones al vuelo con un toque.
-*   **Gestión de Almacenamiento:** Herramientas para limpiar la caché de imágenes desde la app.
+### 🎨 UX/UI "Digital Arcade"
+*   **Diseño Dark Premium:** Estética oscura con acentos neón, glassmorphism y transiciones suaves.
+*   **Minijuego de Espera:** Un "Runner" infinito integrado ameniza los tiempos de carga durante la primera sincronización.
+*   **Deep Linking:** Comparte juegos específicos mediante enlaces universales (`voxgamer://` o web links).
 
 ---
 
 ## 🛠️ Stack Tecnológico
 
-El proyecto está construido sobre **Flutter** (Dart SDK >= 3.5.0) y utiliza un conjunto robusto de librerías:
+El proyecto utiliza las últimas capacidades de Flutter (Dart 3.5+) y un conjunto robusto de librerías:
 
-| Categoría | Librerías Clave |
-| :--- | :--- |
-| **Core & UI** | `flutter`, `google_fonts`, `shimmer`, `animations` |
-| **Multimedia** | `video_player`, `chewie`, `cached_network_image`, `flutter_cache_manager` |
-| **Persistencia** | `sqflite`, `shared_preferences`, `path_provider` |
-| **Datos & Red** | `http`, `archive` (GZIP), `html` |
-| **Servicios** | `flutter_background_service`, `flutter_local_notifications`, `wakelock_plus` |
-| **Integración** | `app_links`, `url_launcher`, `translator`, `share_plus` |
-
----
-
-## 🏗️ Estructura de Datos (Backend Pipeline)
-
-VoxGamer consume datos generados por una suite de herramientas externa que unifica fuentes de Steam y RAWG.
-
-**Tablas Principales (SQLite v9):**
-*   `games`: Catálogo principal (Slug, Título, Descripción, Metacritic, Videos, Desarrolladores, Editores, etc.).
-*   `upcoming_games`: Tabla ligera para lanzamientos futuros.
-*   `meta_filters`: Índices optimizados para los filtros de la UI.
+| Área | Tecnología | Función |
+| :--- | :--- | :--- |
+| **Persistencia** | `sqflite` | Base de datos SQL local optimizada (Schema v10). |
+| **Procesamiento** | `flutter_background_service` | Tareas de sincronización en segundo plano. |
+| **Imágenes** | `cached_network_image` | Caché persistente y optimización de memoria. |
+| **Multimedia** | `video_player`, `chewie` | Reproducción de video nativa. |
+| **Red & Datos** | `http`, `archive` | Descarga y descompresión de streams GZIP. |
+| **UI** | `shimmer`, `google_fonts` | Efectos de carga esqueleto y tipografía. |
+| **Utilidades** | `translator`, `app_links` | Traducción y Deep Links. |
 
 ---
 
-## 🚀 Guía de Instalación
+## 🏗️ Estructura de Datos Interna
 
-### Requisitos
-*   Flutter SDK instalado (Canal estable).
-*   Android Studio / VS Code.
-*   Dispositivo Android (min SDK 21).
+La aplicación gestiona un ciclo de vida de datos complejo para garantizar la disponibilidad offline:
 
-### Pasos
-1.  **Clonar el repositorio:**
+1.  **Fetch:** Descarga de `json.gz` desde CDN.
+2.  **Compute:** Descompresión y parsing en un *Isolate* separado para no bloquear la UI.
+3.  **Batch Insert:** Inserción transaccional en SQLite (`games` y `upcoming_games`).
+4.  **Indexing:** Generación de índices SQL para búsquedas instantáneas por título y fecha.
+5.  **Query Projection:** Las listas solicitan solo 7 campos clave; el detalle solicita el registro completo (`SELECT *`).
+
+---
+
+## 🚀 Instalación y Despliegue
+
+1.  **Clonar repositorio:**
     ```bash
     git clone https://github.com/tu-usuario/voxgamer.git
-    cd voxgamer
     ```
-
 2.  **Instalar dependencias:**
     ```bash
     flutter pub get
     ```
-
 3.  **Ejecutar:**
     ```bash
     flutter run
     ```
 
----
-
-## 📱 Deep Links
-
-La aplicación soporta navegación directa a fichas de juegos.
-
-*   **Esquema Custom:** `voxgamer://game/{slug}?year={year}`
-*   **Web Link (GitHub Pages):** `https://andymartin1991.github.io/VoxGamer/game/{slug}`
+> **Nota:** La primera ejecución activará la sincronización masiva. Asegúrate de tener conexión a internet. Posteriormente, la app es 100% funcional offline.
 
 ---
-*Developed with ❤️ by VoxGamer Team.*
+*Desarrollado con ❤️ por el equipo de VoxGamer.*

@@ -47,6 +47,9 @@ Future<bool> onIosBackground(ServiceInstance service) async {
 
 @pragma('vm:entry-point')
 void onStart(ServiceInstance service) async {
+  // Aseguramos el registro de plugins. 
+  // Nota: Puede generar un log 'This class should only be used in the main isolate' 
+  // proveniente de flutter_background_service_android, pero es necesario para sqflite/path_provider.
   DartPluginRegistrant.ensureInitialized();
 
   final DataService dataService = DataService();
@@ -78,7 +81,7 @@ void onStart(ServiceInstance service) async {
                 android: AndroidNotificationDetails(
                   'bg_service_channel_v2', 
                   'Actualización en Segundo Plano',
-                  icon: 'ic_launcher',
+                  icon: '@mipmap/ic_launcher', // FIX: Icono correcto
                   ongoing: true,
                   onlyAlertOnce: true,
                   showProgress: true,
@@ -88,7 +91,7 @@ void onStart(ServiceInstance service) async {
                 ),
               );
               
-              flutterLocalNotificationsPlugin.show(
+              await flutterLocalNotificationsPlugin.show(
                 889, // ID DEDICADO A LA BARRA
                 'Actualizando catálogo...',
                 '$percent% completado',
@@ -96,7 +99,7 @@ void onStart(ServiceInstance service) async {
               );
               
               // Actualizamos también la notificación del sistema (888) solo con texto
-              service.setForegroundNotificationInfo(
+              await service.setForegroundNotificationInfo(
                 title: "VoxGamer",
                 content: "Procesando: $percent%",
               );
@@ -108,9 +111,9 @@ void onStart(ServiceInstance service) async {
       service.invoke('success');
       
       // Limpiamos la barra de progreso
-      flutterLocalNotificationsPlugin.cancel(889);
+      await flutterLocalNotificationsPlugin.cancel(889);
       
-      flutterLocalNotificationsPlugin.show(
+      await flutterLocalNotificationsPlugin.show(
         999,
         '¡Actualización completada!',
         'La base de datos está lista.',
@@ -120,6 +123,7 @@ void onStart(ServiceInstance service) async {
             'Actualizaciones Completadas',
             importance: Importance.max,
             priority: Priority.high,
+            icon: '@mipmap/ic_launcher', // FIX: Icono correcto
           ),
         ),
       );

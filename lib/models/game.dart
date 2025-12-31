@@ -19,6 +19,7 @@ class Game {
   final List<Video> videos;
   final List<String> desarrolladores;
   final List<String> editores;
+  final int? edadRecomendada; // Nuevo campo edad (0, 3, 7, 12, 16, 18)
 
   // Campos calculados para búsqueda y ordenamiento
   late final String cleanTitle;
@@ -41,6 +42,7 @@ class Game {
     required this.videos,
     required this.desarrolladores,
     required this.editores,
+    this.edadRecomendada,
   }) {
     cleanTitle = normalize(titulo);
     releaseDateTs = _parseDate(fechaLanzamiento);
@@ -70,6 +72,7 @@ class Game {
           [],
       desarrolladores: List<String>.from(json['desarrolladores'] ?? []),
       editores: List<String>.from(json['editores'] ?? []),
+      edadRecomendada: json['edad_recomendada'], // Mapeo del nuevo campo
     );
   }
 

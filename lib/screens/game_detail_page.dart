@@ -6,9 +6,10 @@ import 'package:share_plus/share_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
-import 'dart:ui'; // Necesario para ImageFilter
+import 'dart:ui'; 
 import '../models/game.dart';
 import '../services/data_service.dart';
+import '../widgets/pegi_badge.dart'; // Importamos el widget reutilizable
 
 class GameDetailPage extends StatefulWidget {
   final Game game;
@@ -136,16 +137,16 @@ class _GameDetailPageState extends State<GameDetailPage> {
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
-            expandedHeight: 320.0, // Un poco más alto para lucir la imagen
+            expandedHeight: 320.0,
             pinned: true,
             backgroundColor: theme.scaffoldBackgroundColor,
             leading: IconButton(
               icon: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.6), // Más oscuro para contraste
+                  color: Colors.black.withOpacity(0.6), 
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white24, width: 1), // Borde sutil
+                  border: Border.all(color: Colors.white24, width: 1), 
                 ),
                 child: const Icon(Icons.arrow_back, size: 20),
               ),
@@ -172,11 +173,11 @@ class _GameDetailPageState extends State<GameDetailPage> {
               title: Text(
                 _game.titulo,
                 style: const TextStyle(
-                  fontWeight: FontWeight.w900, // Fuente más gruesa
+                  fontWeight: FontWeight.w900, 
                   fontSize: 18,
                   shadows: [
                     Shadow(color: Colors.black, blurRadius: 15, offset: Offset(0, 2)),
-                    Shadow(color: Colors.black, blurRadius: 5), // Doble sombra para legibilidad
+                    Shadow(color: Colors.black, blurRadius: 5), 
                   ],
                 ),
               ),
@@ -189,7 +190,6 @@ class _GameDetailPageState extends State<GameDetailPage> {
                     heroTagPrefix: _game.slug,
                     onVideoTap: (url) => _launchUrlInBrowser(context, url),
                   ),
-                  // Gradiente Cinematico Mejorado
                   const IgnorePointer(
                     child: DecoratedBox(
                       decoration: BoxDecoration(
@@ -228,13 +228,23 @@ class _GameDetailPageState extends State<GameDetailPage> {
                       border: Border.all(color: Colors.white.withOpacity(0.05)),
                     ),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
                         _buildStatItem(Icons.calendar_today, l10n.release, _game.fechaLanzamiento.isNotEmpty ? _game.fechaLanzamiento : 'N/A'),
+                        
                         _buildVerticalDivider(),
-                        if (_game.metacritic != null)
+                        
+                        // BADGE DE EDAD (WIDGET REUTILIZABLE)
+                        if (_game.edadRecomendada != null) ...[
+                          PegiBadge(age: _game.edadRecomendada!),
+                          _buildVerticalDivider(),
+                        ],
+                        
+                        if (_game.metacritic != null) ...[
                           _buildStatItem(Icons.star, l10n.metascore, _game.metacritic.toString(), color: _getScoreColor(_game.metacritic!)),
-                        if (_game.metacritic != null) _buildVerticalDivider(),
+                          _buildVerticalDivider(),
+                        ],
+                        
                         _buildStatItem(Icons.sd_storage, l10n.storage, _game.storage ?? 'N/A'),
                       ],
                     ),
@@ -376,7 +386,6 @@ class _GameDetailPageState extends State<GameDetailPage> {
     );
   }
 
-  // CHIP NEON CON ESTILO CYBERPUNK
   Widget _buildNeonChip(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -456,12 +465,11 @@ class _GameDetailPageState extends State<GameDetailPage> {
         fontSize: 12, 
         fontWeight: FontWeight.w900, 
         color: Colors.grey.shade500, 
-        letterSpacing: 1.5 // Más espaciado para toque premium
+        letterSpacing: 1.5 
       ),
     );
   }
 
-  // STAT ITEM AHORA ES MÁS LIMPIO Y GRANDE
   Widget _buildStatItem(IconData icon, String label, String value, {Color? color}) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -544,8 +552,6 @@ class _GameGallerySliderState extends State<_GameGallerySlider> {
           itemCount: totalCount,
           onPageChanged: (index) => setState(() => _currentIndex = index),
           itemBuilder: (context, index) {
-            
-            // --- Lógica para mostrar VIDEOS primero ---
             if (index < widget.videos.length) {
               final video = widget.videos[index];
               return _InAppVideoPlayer(
@@ -554,8 +560,6 @@ class _GameGallerySliderState extends State<_GameGallerySlider> {
                 thumbnailUrl: video.thumbnail,
               );
             }
-
-            // --- Lógica para mostrar IMÁGENES ---
             final imgIndex = index - widget.videos.length;
             final imageUrl = widget.images[imgIndex];
             
@@ -578,7 +582,7 @@ class _GameGallerySliderState extends State<_GameGallerySlider> {
         
         if (totalCount > 1)
           Positioned(
-            bottom: 30, // Subido un poco para no chocar con el gradiente oscuro
+            bottom: 30, 
             left: 0,
             right: 0,
             child: Row(
@@ -587,7 +591,7 @@ class _GameGallerySliderState extends State<_GameGallerySlider> {
                 final isActive = i == _currentIndex;
                 final isVideo = i < widget.videos.length;
                 
-                return AnimatedContainer( // ANIMACIÓN DE PUNTOS
+                return AnimatedContainer( 
                   duration: const Duration(milliseconds: 300),
                   width: isActive ? 24.0 : 6.0,
                   height: 6.0,
@@ -700,7 +704,6 @@ class _InAppVideoPlayerState extends State<_InAppVideoPlayer> {
                 : Stack(
                     alignment: Alignment.center,
                     children: [
-                      // Sombra (hack para que se vea fuera del clip)
                       Container(
                         width: 72, height: 72,
                         decoration: BoxDecoration(
@@ -710,7 +713,6 @@ class _InAppVideoPlayerState extends State<_InAppVideoPlayer> {
                           ],
                         ),
                       ),
-                      // Efecto cristal
                       ClipOval(
                         child: BackdropFilter(
                           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
@@ -731,7 +733,7 @@ class _InAppVideoPlayerState extends State<_InAppVideoPlayer> {
           
           if (!_isInitializing)
             Positioned(
-              bottom: 60, // Subido para no chocar con indicador
+              bottom: 60, 
               left: 10,
               right: 10,
               child: Text(

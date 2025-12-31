@@ -11,8 +11,6 @@ class DatabaseHelper {
   static int insertDelay = 30;
   static bool turboMode = false;
 
-  static const List<String> _adultKeywords = ['%sex%', '%hentai%', '%cum%', '%porn%', '%erotic%', '%adult%'];
-
   DatabaseHelper._init();
 
   Future<Database> get database async {
@@ -20,7 +18,7 @@ class DatabaseHelper {
       throw UnsupportedError('SQLite no está soportado en Web.');
     }
     if (_database != null) return _database!;
-    _database = await _initDB('voxgamer_v6.db'); 
+    _database = await _initDB('voxgamer_v7.db'); 
     return _database!;
   }
 
@@ -30,7 +28,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 10, 
+      version: 11, // Incrementado a 11 para la nueva columna
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -57,6 +55,7 @@ class DatabaseHelper {
       videos TEXT,
       desarrolladores TEXT,
       editores TEXT,
+      edad_recomendada INTEGER, 
       cleanTitle TEXT,
       releaseDateTs INTEGER,
       PRIMARY KEY (slug, releaseDateTs)
@@ -83,6 +82,7 @@ class DatabaseHelper {
       videos TEXT,
       desarrolladores TEXT,
       editores TEXT,
+      edad_recomendada INTEGER,
       cleanTitle TEXT,
       releaseDateTs INTEGER
     )
@@ -108,6 +108,7 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX IF NOT EXISTS idx_tipo ON games(tipo)'); 
     await db.execute('CREATE INDEX IF NOT EXISTS idx_metacritic ON games(metacritic)');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_upcoming_date ON upcoming_games(releaseDateTs)'); 
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_edad ON games(edad_recomendada)');
   }
 
   Future<void> _dropIndices(DatabaseExecutor db) async {
@@ -115,10 +116,12 @@ class DatabaseHelper {
     await db.execute('DROP INDEX IF EXISTS idx_releaseDateTs');
     await db.execute('DROP INDEX IF EXISTS idx_tipo'); 
     await db.execute('DROP INDEX IF EXISTS idx_metacritic'); 
+    await db.execute('DROP INDEX IF EXISTS idx_edad');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 10) {
+      // Migración previa...
       await db.execute('DROP TABLE IF EXISTS upcoming_games');
       await db.execute('''
         CREATE TABLE upcoming_games (
@@ -140,11 +143,23 @@ class DatabaseHelper {
           videos TEXT,
           desarrolladores TEXT,
           editores TEXT,
+          edad_recomendada INTEGER,
           cleanTitle TEXT,
           releaseDateTs INTEGER
         )
       ''');
-      await db.execute('CREATE INDEX IF NOT EXISTS idx_upcoming_date ON upcoming_games(releaseDateTs)'); 
+    }
+    
+    if (oldVersion < 11) {
+      // Añadir columna edad_recomendada si no existe
+      try {
+        await db.execute('ALTER TABLE games ADD COLUMN edad_recomendada INTEGER');
+        await db.execute('ALTER TABLE upcoming_games ADD COLUMN edad_recomendada INTEGER');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_edad ON games(edad_recomendada)');
+      } catch (e) {
+        // Ignorar si ya existen
+        debugPrint("Error migrando v11 (columnas pueden ya existir): $e");
+      }
     }
   }
 
@@ -369,6 +384,7 @@ class DatabaseHelper {
             'videos': jsonEncode(game.videos.map((v) => v.toJson()).toList()),
             'desarrolladores': jsonEncode(game.desarrolladores),
             'editores': jsonEncode(game.editores),
+            'edad_recomendada': game.edadRecomendada, // Guardando la edad
             'cleanTitle': game.cleanTitle,
             'releaseDateTs': game.releaseDateTs
           }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -411,6 +427,7 @@ class DatabaseHelper {
           'videos': jsonEncode(game.videos.map((v) => v.toJson()).toList()),
           'desarrolladores': jsonEncode(game.desarrolladores),
           'editores': jsonEncode(game.editores),
+          'edad_recomendada': game.edadRecomendada, // Guardando la edad
           'cleanTitle': game.cleanTitle,
           'releaseDateTs': game.releaseDateTs
         }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -478,11 +495,10 @@ class DatabaseHelper {
         whereArgs.add('%$cleanQuery%');
       }
 
+      // NUEVO FILTRO DE EDAD
       if (!isAdult) {
-        for (var keyword in _adultKeywords) {
-          addCondition('lower(titulo) NOT LIKE ?');
-          whereArgs.add(keyword);
-        }
+        // Filtrar juegos +18 (asumiendo que 18 es el valor para adultos)
+        addCondition('(edad_recomendada < 18 OR edad_recomendada IS NULL)');
       }
 
       // Aplicar filtros multi-selección
@@ -498,7 +514,7 @@ class DatabaseHelper {
       }
 
       final List<String>? columns = fastMode 
-          ? ['slug', 'titulo', 'tipo', 'fecha_lanzamiento', 'img_principal', 'metacritic', 'plataformas', 'releaseDateTs'] 
+          ? ['slug', 'titulo', 'tipo', 'fecha_lanzamiento', 'img_principal', 'metacritic', 'plataformas', 'releaseDateTs', 'edad_recomendada'] 
           : null;
 
       final List<Map<String, dynamic>> maps = await db.query(
@@ -566,11 +582,10 @@ class DatabaseHelper {
       whereArgs.add('%$cleanQuery%');
     }
 
+    // NUEVO FILTRO DE EDAD
     if (!isAdult) {
-      for (var keyword in _adultKeywords) {
-        addCondition('lower(titulo) NOT LIKE ?');
-        whereArgs.add(keyword);
-      }
+      // Filtrar juegos +18
+      addCondition('(edad_recomendada < 18 OR edad_recomendada IS NULL)');
     }
 
     if (tipo != null) {
@@ -590,7 +605,7 @@ class DatabaseHelper {
 
     try {
       final List<String>? columns = fastMode 
-          ? ['slug', 'titulo', 'tipo', 'fecha_lanzamiento', 'img_principal', 'metacritic', 'plataformas', 'releaseDateTs'] 
+          ? ['slug', 'titulo', 'tipo', 'fecha_lanzamiento', 'img_principal', 'metacritic', 'plataformas', 'releaseDateTs', 'edad_recomendada'] 
           : null;
 
       final List<Map<String, dynamic>> maps = await db.query(

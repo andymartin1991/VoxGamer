@@ -23,6 +23,7 @@ import 'services/database_helper.dart';
 import 'services/background_service.dart';
 import 'screens/game_detail_page.dart';
 import 'widgets/minigame_overlay.dart'; 
+import 'widgets/pegi_badge.dart'; // Importamos el widget reutilizable
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -1707,6 +1708,12 @@ class UpcomingGamesTabState extends State<UpcomingGamesTab> with AutomaticKeepAl
                             style: TextStyle(fontSize: 12, color: Colors.purpleAccent.shade100, fontWeight: FontWeight.bold),
                           ),
                           const Spacer(),
+                          // --- PEGI EN LISTA ---
+                          if (game.edadRecomendada != null)
+                             Padding(
+                               padding: const EdgeInsets.only(right: 8.0),
+                               child: PegiBadge(age: game.edadRecomendada!, size: 24, showLabel: false),
+                             ),
                           _buildTypeLabel(game.tipo),
                         ],
                       ),
@@ -1995,6 +2002,12 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
                             style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
                           ),
                           const Spacer(),
+                          // --- PEGI EN LISTA ---
+                          if (game.edadRecomendada != null)
+                             Padding(
+                               padding: const EdgeInsets.only(right: 8.0),
+                               child: PegiBadge(age: game.edadRecomendada!, size: 20, showLabel: false),
+                             ),
                           if (game.metacritic != null)
                              Container(
                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

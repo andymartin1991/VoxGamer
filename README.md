@@ -23,10 +23,11 @@ VoxGamer es una aplicación móvil de vanguardia desarrollada en Flutter, diseñ
 *   **Base de Datos Unificada:** Búsqueda transversal inteligente que localiza juegos tanto en el catálogo histórico como en futuros lanzamientos.
 
 ### 🔍 Sistema de Filtrado "Power User"
-*   **Filtros Granulares:**
+*   **Filtros Granulares e Inteligentes:**
+    *   **Lógica de Selección:** Selección múltiple con lógica **AND** (intersección) para Géneros, Plataformas e Idiomas (ej. "Acción" + "RPG" busca juegos que sean *ambos*).
     *   **Idiomas:** Filtra específicamente por idioma de **Voces** y **Textos**.
     *   **Plataformas:** PC, PlayStation, Xbox, Nintendo, Android/iOS, etc.
-    *   **Metadatos:** Género, Año de lanzamiento y Puntuación.
+    *   **Metadatos:** Género, Año de lanzamiento (lógica **OR**) y Puntuación.
 *   **Control de Contenido (+18):** Sistema de seguridad opcional que filtra palabras clave y contenido adulto, con verificación de edad integrada.
 *   **Ordenación Flexible:** Clasificación por Fecha de Lanzamiento (cronológica) o Metascore (calidad).
 

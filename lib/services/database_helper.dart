@@ -419,8 +419,8 @@ class DatabaseHelper {
     });
   }
 
-  // Helper para generar condiciones OR
-  void _addMultiSelectCondition(List<String>? items, String column, List<dynamic> whereArgs, Function(String) addClause, {bool exact = false}) {
+  // Helper para generar condiciones OR o AND
+  void _addMultiSelectCondition(List<String>? items, String column, List<dynamic> whereArgs, Function(String) addClause, {bool exact = false, bool useAnd = false}) {
     if (items == null || items.isEmpty || (items.length == 1 && items.first == 'Cualquiera')) return;
     
     final conditions = <String>[];
@@ -441,7 +441,8 @@ class DatabaseHelper {
     }
     
     if (conditions.isNotEmpty) {
-      addClause('(${conditions.join(' OR ')})');
+      final op = useAnd ? ' AND ' : ' OR ';
+      addClause('(${conditions.join(op)})');
     }
   }
 
@@ -485,11 +486,11 @@ class DatabaseHelper {
       }
 
       // Aplicar filtros multi-selección
-      _addMultiSelectCondition(voiceLanguages, 'idiomas_voces', whereArgs, addCondition);
-      _addMultiSelectCondition(textLanguages, 'idiomas_textos', whereArgs, addCondition);
-      _addMultiSelectCondition(years, 'fecha_lanzamiento', whereArgs, addCondition);
-      _addMultiSelectCondition(genres, 'generos', whereArgs, addCondition);
-      _addMultiSelectCondition(platforms, 'plataformas', whereArgs, addCondition);
+      _addMultiSelectCondition(voiceLanguages, 'idiomas_voces', whereArgs, addCondition, useAnd: true);
+      _addMultiSelectCondition(textLanguages, 'idiomas_textos', whereArgs, addCondition, useAnd: true);
+      _addMultiSelectCondition(years, 'fecha_lanzamiento', whereArgs, addCondition, useAnd: false);
+      _addMultiSelectCondition(genres, 'generos', whereArgs, addCondition, useAnd: true);
+      _addMultiSelectCondition(platforms, 'plataformas', whereArgs, addCondition, useAnd: true);
 
       String orderBy = 'CASE WHEN releaseDateTs = 0 THEN 1 ELSE 0 END ASC, releaseDateTs ASC';
       if (sortBy == 'score') {
@@ -578,11 +579,11 @@ class DatabaseHelper {
     }
 
     // Filtros Multi-selección
-    _addMultiSelectCondition(voiceLanguages, 'idiomas_voces', whereArgs, addCondition);
-    _addMultiSelectCondition(textLanguages, 'idiomas_textos', whereArgs, addCondition);
-    _addMultiSelectCondition(years, 'fecha_lanzamiento', whereArgs, addCondition);
-    _addMultiSelectCondition(genres, 'generos', whereArgs, addCondition);
-    _addMultiSelectCondition(platforms, 'plataformas', whereArgs, addCondition);
+    _addMultiSelectCondition(voiceLanguages, 'idiomas_voces', whereArgs, addCondition, useAnd: true);
+    _addMultiSelectCondition(textLanguages, 'idiomas_textos', whereArgs, addCondition, useAnd: true);
+    _addMultiSelectCondition(years, 'fecha_lanzamiento', whereArgs, addCondition, useAnd: false);
+    _addMultiSelectCondition(genres, 'generos', whereArgs, addCondition, useAnd: true);
+    _addMultiSelectCondition(platforms, 'plataformas', whereArgs, addCondition, useAnd: true);
 
     String orderByClause = 'releaseDateTs DESC';
     if (sortBy == 'score') orderByClause = 'metacritic DESC, releaseDateTs DESC'; 

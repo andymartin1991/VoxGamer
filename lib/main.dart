@@ -750,7 +750,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                           child: const Icon(Icons.explicit, color: Colors.redAccent),
                         ),
                         title: Text(l10n.filterAdult, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        subtitle: Text(isAdult ? l10n.msgAdultDisabled : l10n.msgAdultEnabled, style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+                        subtitle: Text(isAdult ? l10n.msgAdultEnabled : l10n.msgAdultDisabled, style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
                         onChanged: (bool value) async {
                           await _toggleAdultContent();
                           setModalState(() => isAdult = value);
@@ -771,9 +771,9 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                         onTap: () { Navigator.pop(context); _clearCache(context); },
                       ),
                       
-                      const SizedBox(height: 30),
+                      const SizedBox(height: 20),
                       Padding(
-                        padding: const EdgeInsets.only(bottom: 30),
+                        padding: const EdgeInsets.only(bottom: 20),
                         child: Text("VoxGamer v1.0.0", style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
                       ),
                     ],

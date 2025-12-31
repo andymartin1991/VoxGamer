@@ -25,7 +25,7 @@ VoxGamer es una aplicación multiplataforma (Móvil y Web) desarrollada en Flutt
 ### 🔍 Sistema de Filtrado "Power User"
 *   **Filtros Granulares:** Selección múltiple con lógica **AND** para Géneros, Plataformas e Idiomas.
 *   **Idiomas:** Filtra específicamente por idioma de **Voces** y **Textos**.
-*   **Control de Contenido (+18):** Switch de seguridad integrado en el panel de ajustes para filtrar contenido adulto al instante.
+*   **Control Parental Inteligente (PEGI):** Sistema de filtrado basado en clasificación por edades real. Oculta automáticamente contenido para adultos (+18) mediante un switch de seguridad integrado en los ajustes.
 *   **Ordenación Flexible:** Clasificación por Fecha de Lanzamiento o Metascore.
 
 ### 🎬 Experiencia Multimedia & Social
@@ -36,7 +36,8 @@ VoxGamer es una aplicación multiplataforma (Móvil y Web) desarrollada en Flutt
 
 ### 🎨 UX/UI "Digital Arcade"
 *   **Diseño Dark Premium:** Estética oscura con acentos neón.
-*   **Panel de Ajustes Glassmorphic:** Nuevo menú de configuración modal con efectos de desenfoque ("frosted glass"), interruptores animados y feedback háptico para una experiencia táctil superior.
+*   **Badges PEGI Dinámicos:** Indicadores visuales de edad recomendada con código de colores (Verde/Naranja/Rojo) integrados en listas y fichas de detalle.
+*   **Panel de Ajustes Glassmorphic:** Nuevo menú de configuración modal con efectos de desenfoque ("frosted glass"), interruptores animados y feedback háptico.
 *   **Minijuego de Espera:** Un "Runner" infinito ameniza los tiempos de carga durante la sincronización inicial.
 
 ---
@@ -67,7 +68,7 @@ La aplicación gestiona un ciclo de vida de datos complejo:
 1.  **Fetch:** Descarga de `json.gz` desde CDN (GitHub Raw).
 2.  **Compute:** Descompresión y parsing en un *Isolate* separado.
 3.  **Batch Insert:** Inserción transaccional en SQLite (Native) o Web Cache (Web).
-4.  **Indexing:** Índices SQL para búsquedas instantáneas por título y fecha.
+4.  **Indexing:** Índices SQL para búsquedas instantáneas por título, fecha y clasificación PEGI.
 
 ---
 

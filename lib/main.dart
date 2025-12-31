@@ -648,6 +648,149 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     _refreshLists();
   }
 
+  // --- NUEVA IMPLEMENTACIÓN DE MENÚ PREMIUM ---
+  void _showSettingsModal() async {
+    final l10n = AppLocalizations.of(context)!;
+    final prefs = await SharedPreferences.getInstance();
+    bool isAdult = prefs.getBool('is_adult') ?? false;
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F1218).withOpacity(0.95),
+                    border: Border(top: BorderSide(color: Colors.white.withOpacity(0.1), width: 1)),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Handle bar
+                      Center(
+                        child: Container(
+                          width: 40, height: 4,
+                          margin: const EdgeInsets.only(top: 12, bottom: 20),
+                          decoration: BoxDecoration(color: Colors.grey.shade700, borderRadius: BorderRadius.circular(2)),
+                        ),
+                      ),
+                      
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                        child: Text(l10n.filtersConfig.replaceAll('Filtros', 'Ajustes'), // Usando string existente o default
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+                      ),
+
+                      const SizedBox(height: 12),
+                      
+                      // BLOQUE DE DATOS
+                      _buildSettingsTile(
+                        icon: Icons.cloud_sync_outlined,
+                        color: Colors.blueAccent,
+                        title: l10n.syncQuick,
+                        subtitle: "Actualizar base de datos local",
+                        onTap: () { Navigator.pop(context); _updateCatalog(); },
+                      ),
+                      _buildSettingsTile(
+                        icon: Icons.rocket_launch_outlined,
+                        color: Colors.purpleAccent,
+                        title: l10n.syncUpcoming,
+                        subtitle: "Buscar próximos lanzamientos",
+                        onTap: () { Navigator.pop(context); _triggerUpcomingSync(); },
+                      ),
+                      
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                        child: Divider(color: Colors.white10),
+                      ),
+
+                      // BLOQUE DE PREFERENCIAS
+                      SwitchListTile(
+                        value: isAdult,
+                        activeColor: Colors.redAccent,
+                        inactiveThumbColor: Colors.grey,
+                        inactiveTrackColor: Colors.grey.shade900,
+                        secondary: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.explicit, color: Colors.redAccent),
+                        ),
+                        title: Text(l10n.filterAdult, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        subtitle: Text(isAdult ? l10n.msgAdultDisabled : l10n.msgAdultEnabled, style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+                        onChanged: (bool value) async {
+                          await _toggleAdultContent();
+                          setModalState(() => isAdult = value);
+                        },
+                      ),
+
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                        child: Divider(color: Colors.white10),
+                      ),
+
+                      // BLOQUE DE MANTENIMIENTO
+                      _buildSettingsTile(
+                        icon: Icons.cleaning_services_outlined,
+                        color: Colors.orangeAccent,
+                        title: l10n.clearCache,
+                        subtitle: "Liberar espacio en disco",
+                        onTap: () { Navigator.pop(context); _clearCache(context); },
+                      ),
+                      
+                      const SizedBox(height: 30),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 30),
+                        child: Text("VoxGamer v1.0.0", style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
+        );
+      },
+    );
+  }
+
+  Widget _buildSettingsTile({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap();
+      },
+      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: color),
+      ),
+      title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      subtitle: Text(subtitle, style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+      trailing: const Icon(Icons.chevron_right, color: Colors.white24),
+    );
+  }
+
   void _showFilterDialog() {
     final l10n = AppLocalizations.of(context)!;
     if (_isSyncing) {
@@ -1212,24 +1355,11 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                                             Text(l10n?.appTitle ?? 'VoxGamer', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
                                           ],
                                         ),
-                                        PopupMenuButton<String>(
-                                          icon: const Icon(Icons.more_vert, color: Colors.white70),
-                                          onSelected: (value) { 
-                                            if (value == 'update') _updateCatalog(); 
-                                            if (value == 'update_upcoming') _triggerUpcomingSync();
-                                            if (value == 'clear_cache') _clearCache(context);
-                                            if (value == 'toggle_adult') _toggleAdultContent();
-                                          },
-                                          color: const Color(0xFF1E232F),
-                                          itemBuilder: (context) {
-                                            final l10n = AppLocalizations.of(context)!;
-                                            return [
-                                              PopupMenuItem(value: 'update', child: Row(children: [const Icon(Icons.cloud_sync, color: Colors.blueAccent), const SizedBox(width: 8), Text(l10n.syncQuick, style: const TextStyle(color: Colors.white))])),
-                                              PopupMenuItem(value: 'update_upcoming', child: Row(children: [const Icon(Icons.rocket, color: Colors.purpleAccent), const SizedBox(width: 8), Text(l10n.syncUpcoming, style: const TextStyle(color: Colors.white))])),
-                                              PopupMenuItem(value: 'toggle_adult', child: Row(children: [const Icon(Icons.explicit, color: Colors.redAccent), const SizedBox(width: 8), Text(l10n.filterAdult, style: const TextStyle(color: Colors.white))])),
-                                              PopupMenuItem(value: 'clear_cache', child: Row(children: [const Icon(Icons.cleaning_services, color: Colors.orangeAccent), const SizedBox(width: 8), Text(l10n.clearCache, style: const TextStyle(color: Colors.white))])),
-                                            ];
-                                          },
+                                        
+                                        // --- REEMPLAZO MENU PREMIUM ---
+                                        IconButton(
+                                          icon: const Icon(Icons.settings_rounded, color: Colors.white70),
+                                          onPressed: _showSettingsModal,
                                         ),
                                       ],
                                     ),

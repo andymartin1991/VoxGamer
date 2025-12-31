@@ -25,7 +25,7 @@ VoxGamer es una aplicación multiplataforma (Móvil y Web) desarrollada en Flutt
 ### 🔍 Sistema de Filtrado "Power User"
 *   **Filtros Granulares:** Selección múltiple con lógica **AND** para Géneros, Plataformas e Idiomas.
 *   **Idiomas:** Filtra específicamente por idioma de **Voces** y **Textos**.
-*   **Control de Contenido (+18):** Sistema de seguridad opcional que filtra contenido adulto.
+*   **Control de Contenido (+18):** Switch de seguridad integrado en el panel de ajustes para filtrar contenido adulto al instante.
 *   **Ordenación Flexible:** Clasificación por Fecha de Lanzamiento o Metascore.
 
 ### 🎬 Experiencia Multimedia & Social
@@ -35,7 +35,8 @@ VoxGamer es una aplicación multiplataforma (Móvil y Web) desarrollada en Flutt
 *   **Localización:** Soporte nativo para Español 🇪🇸 e Inglés 🇺🇸.
 
 ### 🎨 UX/UI "Digital Arcade"
-*   **Diseño Dark Premium:** Estética oscura con acentos neón y glassmorphism.
+*   **Diseño Dark Premium:** Estética oscura con acentos neón.
+*   **Panel de Ajustes Glassmorphic:** Nuevo menú de configuración modal con efectos de desenfoque ("frosted glass"), interruptores animados y feedback háptico para una experiencia táctil superior.
 *   **Minijuego de Espera:** Un "Runner" infinito ameniza los tiempos de carga durante la sincronización inicial.
 
 ---

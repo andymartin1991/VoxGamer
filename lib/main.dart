@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:async';
 import 'dart:io'; 
@@ -165,6 +166,7 @@ class HomePage extends StatefulWidget {
 class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final DataService _dataService = DataService();
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _nestedScrollController = ScrollController(); 
   
   late TabController _tabController;
   
@@ -177,6 +179,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   Uri? _pendingDeepLink; 
 
   Timer? _debounce;
+  Timer? _autoShowTimer; 
   bool _isSyncing = false;
   double _syncProgress = 0.0;
   String _statusMessage = '';
@@ -194,6 +197,12 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   List<String> _selectedGenres = [];
   List<String> _selectedPlatforms = []; 
   String _selectedSort = 'date'; 
+
+  // Control Visual Premium
+  bool _isHeaderExpanded = true;
+  final double _topSectionHeight = 100.0; 
+  final double _tabBarHeight = 50.0;
+  final double _spacingHeight = 8.0; 
 
   List<String> _voiceLanguages = [];
   List<String> _textLanguages = [];
@@ -227,6 +236,11 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   }
 
   void _handleTabSelection() {
+    _autoShowTimer?.cancel();
+    if (!_isHeaderExpanded) {
+      setState(() => _isHeaderExpanded = true);
+    }
+
     if (_tabController.indexIsChanging) {
       _refreshActiveTabOnly();
     }
@@ -241,9 +255,9 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       if (!mounted) return;
       await showDialog<bool>(
         context: context,
-        barrierDismissible: false, 
+        barrierDismissible: false,
         builder: (context) => PopScope(
-          canPop: false, 
+          canPop: false,
           child: AlertDialog(
             title: Text(l10n.ageVerificationTitle),
             content: Text(l10n.ageVerificationContent),
@@ -252,7 +266,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                 onPressed: () async {
                   await prefs.setBool('is_adult', false);
                   Navigator.pop(context);
-                  _refreshLists(); 
+                  _refreshLists();
                 },
                 child: Text(l10n.btnNo),
               ),
@@ -260,7 +274,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                 onPressed: () async {
                   await prefs.setBool('is_adult', true);
                   Navigator.pop(context);
-                  _refreshLists(); 
+                  _refreshLists();
                 },
                 child: Text(l10n.btnYesAdult),
               ),
@@ -275,7 +289,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     final prefs = await SharedPreferences.getInstance();
     final current = prefs.getBool('is_adult') ?? false;
     final l10n = AppLocalizations.of(context)!;
-    
+
     if (!current) {
         bool? confirm = await showDialog<bool>(
           context: context,
@@ -293,7 +307,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
 
     await prefs.setBool('is_adult', !current);
     _refreshLists();
-    
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(!current ? l10n.msgAdultEnabled : l10n.msgAdultDisabled)),
@@ -334,12 +348,12 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     if (isGitHubLink || isCustomScheme) {
       if (uri.pathSegments.isNotEmpty) {
         final slug = uri.pathSegments.last;
-        final year = uri.queryParameters['year']; 
-        
+        final year = uri.queryParameters['year'];
+
         if (!_isReadyForDeepLinks) await Future.delayed(const Duration(milliseconds: 500));
 
         final game = await _dataService.getGameBySlug(slug, year: year);
-        
+
         if (!mounted) return;
 
         if (game != null) {
@@ -360,7 +374,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       }
     }
   }
-  
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -382,20 +396,20 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       if (dbHasData) {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setBool('is_syncing', false);
-          
+
           final service = FlutterBackgroundService();
           if (await service.isRunning()) {
               service.invoke('stopService');
           }
           await _loadFilterOptions();
           _refreshLists();
-          
-          _markReadyForLinks(); 
+
+          _markReadyForLinks();
           return;
       }
-      
+
       bool interrupted = await _wasSyncInterrupted();
-      
+
       if (interrupted) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -424,7 +438,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       bool? confirm = await showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          title: Text(l10n.syncQuick), 
+          title: Text(l10n.syncQuick),
           content: Text(l10n.dialogUpdateContent),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context, false), child: Text(l10n.cancel)),
@@ -439,10 +453,10 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     setState(() {
       _isSyncing = true;
       _syncProgress = 0.0;
-      _isReadyForDeepLinks = false; 
+      _isReadyForDeepLinks = false;
     });
     WakelockPlus.enable();
-    _setupServiceListeners(); 
+    _setupServiceListeners();
     final service = FlutterBackgroundService();
     if (!(await service.isRunning())) {
       await service.startService();
@@ -462,7 +476,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
         await _loadFilterOptions();
         _refreshLists();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l10n.msgUpdateComplete)));
-        _markReadyForLinks(); 
+        _markReadyForLinks();
       }
     }
   }
@@ -497,7 +511,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       }
     });
   }
-  
+
   Future<void> _requestNotificationPermissions() async {
     if (Platform.isAndroid) {
       await flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.requestNotificationsPermission();
@@ -509,21 +523,22 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     _debounce?.cancel();
+    _autoShowTimer?.cancel();
     _progressSub?.cancel();
     _successSub?.cancel();
     _errorSub?.cancel();
     _linkSubscription?.cancel();
-    _tabController.dispose(); 
+    _tabController.dispose();
     super.dispose();
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) { 
+  void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _checkServiceStatus();
     }
   }
-  
+
   Future<void> _checkServiceStatus() async {
     if (kIsWeb) return;
     final service = FlutterBackgroundService();
@@ -535,11 +550,11 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
        }
     } else {
        if (_isSyncing) {
-          _finishSync(success: true); 
+          _finishSync(success: true);
        }
     }
   }
-  
+
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
@@ -596,10 +611,10 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       }
   }
 
-  bool hasActiveFilters() => 
-    _selectedVoiceLanguages.isNotEmpty || 
+  bool hasActiveFilters() =>
+    _selectedVoiceLanguages.isNotEmpty ||
     _selectedTextLanguages.isNotEmpty ||
-    _selectedYears.isNotEmpty || 
+    _selectedYears.isNotEmpty ||
     _selectedGenres.isNotEmpty ||
     _selectedPlatforms.isNotEmpty ||
     _selectedSort != 'date';
@@ -608,23 +623,23 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     setState(() {
       switch (filterType) {
         case 'sort': _selectedSort = 'date'; break;
-        case 'platform': 
+        case 'platform':
           if (value != null) _selectedPlatforms.remove(value);
           else _selectedPlatforms.clear();
           break;
-        case 'genre': 
+        case 'genre':
           if (value != null) _selectedGenres.remove(value);
           else _selectedGenres.clear();
           break;
-        case 'year': 
+        case 'year':
           if (value != null) _selectedYears.remove(value);
           else _selectedYears.clear();
           break;
-        case 'voice': 
+        case 'voice':
           if (value != null) _selectedVoiceLanguages.remove(value);
           else _selectedVoiceLanguages.clear();
           break;
-        case 'text': 
+        case 'text':
           if (value != null) _selectedTextLanguages.remove(value);
           else _selectedTextLanguages.clear();
           break;
@@ -657,19 +672,19 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
             child: Container(
-              color: const Color(0xFF0F1218).withOpacity(0.9), 
-              child: StatefulBuilder( 
+              color: const Color(0xFF0F1218).withOpacity(0.9),
+              child: StatefulBuilder(
                 builder: (BuildContext context, StateSetter setModalState) {
                   return Padding(
                     padding: const EdgeInsets.all(24.0),
-                    child: SingleChildScrollView( 
+                    child: SingleChildScrollView(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Center(
                             child: Container(
-                              width: 40, height: 4, 
+                              width: 40, height: 4,
                               margin: const EdgeInsets.only(bottom: 24),
                               decoration: BoxDecoration(color: Colors.grey.shade700, borderRadius: BorderRadius.circular(2)),
                             ),
@@ -679,7 +694,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                             children: [
                               Text(l10n.filtersConfig, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
                               IconButton(
-                                icon: const Icon(Icons.close_rounded, color: Colors.grey), 
+                                icon: const Icon(Icons.close_rounded, color: Colors.grey),
                                 onPressed: () => Navigator.pop(context),
                                 style: IconButton.styleFrom(backgroundColor: Colors.white10),
                               )
@@ -704,7 +719,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                           const SizedBox(height: 24),
                           _buildMultiSelectSection(context, l10n.filterYear, Icons.calendar_today, tempYears, _years, (list) => setModalState(() => tempYears = list)),
                           const SizedBox(height: 24),
-                          
+
                           Theme(
                             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
                             child: ExpansionTile(
@@ -725,10 +740,10 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                             children: [
                               Expanded(
                                 child: TextButton(
-                                  style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 18), foregroundColor: Colors.grey.shade400), 
-                                  onPressed: () { 
-                                    setModalState(() { tempVoices.clear(); tempTexts.clear(); tempYears.clear(); tempGenres.clear(); tempPlatforms.clear(); tempSort = 'date'; }); 
-                                  }, 
+                                  style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 18), foregroundColor: Colors.grey.shade400),
+                                  onPressed: () {
+                                    setModalState(() { tempVoices.clear(); tempTexts.clear(); tempYears.clear(); tempGenres.clear(); tempPlatforms.clear(); tempSort = 'date'; });
+                                  },
                                   child: Text(l10n.btnClear)
                                 )
                               ),
@@ -738,34 +753,34 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                                 child: Container(
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(16),
-                                    color: Theme.of(context).colorScheme.primary, // CAMBIO: COLOR SÓLIDO
+                                    color: Theme.of(context).colorScheme.primary,
                                     boxShadow: [
-                                      BoxShadow( // GLOW NEÓN
-                                        color: Theme.of(context).colorScheme.primary.withOpacity(0.5), 
-                                        blurRadius: 20, 
+                                      BoxShadow(
+                                        color: Theme.of(context).colorScheme.primary.withOpacity(0.5),
+                                        blurRadius: 20,
                                         offset: const Offset(0, 4)
                                       )
                                     ]
                                   ),
                                   child: ElevatedButton(
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.transparent, 
+                                      backgroundColor: Colors.transparent,
                                       shadowColor: Colors.transparent,
                                       padding: const EdgeInsets.symmetric(vertical: 18),
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))
-                                    ), 
-                                    onPressed: () { 
-                                      setState(() { 
-                                        _selectedVoiceLanguages = tempVoices; 
-                                        _selectedTextLanguages = tempTexts; 
-                                        _selectedYears = tempYears; 
-                                        _selectedGenres = tempGenres; 
-                                        _selectedPlatforms = tempPlatforms; 
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        _selectedVoiceLanguages = tempVoices;
+                                        _selectedTextLanguages = tempTexts;
+                                        _selectedYears = tempYears;
+                                        _selectedGenres = tempGenres;
+                                        _selectedPlatforms = tempPlatforms;
                                         _selectedSort = tempSort;
-                                      }); 
-                                      Navigator.pop(context); 
-                                      _refreshLists(); 
-                                    }, 
+                                      });
+                                      Navigator.pop(context);
+                                      _refreshLists();
+                                    },
                                     child: Text(l10n.btnApply.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2))
                                   ),
                                 )
@@ -787,7 +802,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     );
   }
 
-  // --- WIDGET DE SELECCIÓN MÚLTIPLE ACTUALIZADO (ESTILO PREMIUM) ---
   Widget _buildMultiSelectSection(BuildContext context, String title, IconData icon, List<String> currentSelection, List<String> allOptions, Function(List<String>) onChanged) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -802,8 +816,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                 final newList = List<String>.from(currentSelection)..remove(item);
                 onChanged(newList);
             })),
-            
-            // BOTÓN AÑADIR PREMIUM
+
             InkWell(
               onTap: () {
                 _showMultiSelectSheet(context, title, allOptions, currentSelection, onChanged);
@@ -814,7 +827,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                 decoration: BoxDecoration(
                   color: Colors.transparent,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white24, style: BorderStyle.solid), // Borde solido sutil
+                  border: Border.all(color: Colors.white24, style: BorderStyle.solid),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -832,7 +845,6 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     );
   }
 
-  // NUEVO TAG ACTIVO PERSONALIZADO
   Widget _buildActiveFilterTag(BuildContext context, String label, VoidCallback onDelete) {
     final primaryColor = Theme.of(context).colorScheme.primary;
     return Container(
@@ -867,12 +879,12 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            final filteredOptions = searchQuery.isEmpty 
-                ? options 
+            final filteredOptions = searchQuery.isEmpty
+                ? options
                 : options.where((op) => op.toLowerCase().contains(searchQuery.toLowerCase())).toList();
 
             return Container(
-              height: MediaQuery.of(context).size.height * 0.85, // MÁS ALTO
+              height: MediaQuery.of(context).size.height * 0.85,
               decoration: BoxDecoration(
                 color: const Color(0xFF0A0E14),
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
@@ -880,12 +892,11 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
               ),
               child: Column(
                 children: [
-                  // Search Header
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: const BoxDecoration(
                       border: Border(bottom: BorderSide(color: Colors.white10)),
-                      color: Color(0xFF151921), // Cabecera distinguida
+                      color: Color(0xFF151921),
                       borderRadius: BorderRadius.vertical(top: Radius.circular(24))
                     ),
                     child: Column(
@@ -902,7 +913,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                                   hintText: 'Buscar $title...',
                                   prefixIcon: const Icon(Icons.search, color: Colors.grey),
                                   filled: true,
-                                  fillColor: const Color(0xFF0A0E14), // Input más oscuro
+                                  fillColor: const Color(0xFF0A0E14),
                                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                                 ),
@@ -916,13 +927,12 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                       ],
                     ),
                   ),
-                  
-                  // Grid List
+
                   Expanded(
                     child: GridView.builder(
                       padding: const EdgeInsets.all(16),
                       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: 160, // Un poco más ancho
+                        maxCrossAxisExtent: 160,
                         childAspectRatio: 2.8,
                         crossAxisSpacing: 12,
                         mainAxisSpacing: 12,
@@ -951,7 +961,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
                                 color: isSelected ? primaryColor : Colors.white.withOpacity(0.05),
                                 width: isSelected ? 1.5 : 1
                               ),
-                              boxShadow: isSelected ? [BoxShadow(color: primaryColor.withOpacity(0.2), blurRadius: 8)] : null, // GLOW AL SELECCIONAR
+                              boxShadow: isSelected ? [BoxShadow(color: primaryColor.withOpacity(0.2), blurRadius: 8)] : null,
                             ),
                             alignment: Alignment.center,
                             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -993,7 +1003,7 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   Widget _buildSortChip(String label, String value, String groupValue, Function(String) onSelected) {
     final isSelected = value == groupValue;
     final primaryColor = Theme.of(context).colorScheme.primary;
-    
+
     return InkWell(
       onTap: () => onSelected(value),
       borderRadius: BorderRadius.circular(12),
@@ -1031,18 +1041,18 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     }
 
     if (parent.selectedSort != 'date') addFilterChip('${l10n.sortBy}: ${parent.selectedSort == 'score' ? l10n.sortScore : l10n.sortDate}', 'sort');
-    
+
     for (var p in parent.selectedPlatforms) addFilterChip(p, 'platform', p);
     for (var g in parent.selectedGenres) addFilterChip(g, 'genre', g);
     for (var y in parent.selectedYears) addFilterChip(y, 'year', y);
     for (var v in parent.selectedVoiceLanguages) addFilterChip('${l10n.filterVoice}: $v', 'voice', v);
     for (var t in parent.selectedTextLanguages) addFilterChip('${l10n.filterText}: $t', 'text', t);
-    
+
     if (activeFilters.isEmpty) return const SizedBox.shrink();
 
     return Container(
       height: 50,
-      margin: const EdgeInsets.only(bottom: 8), 
+      margin: const EdgeInsets.only(bottom: 8),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(children: activeFilters),
@@ -1087,150 +1097,229 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final double topPadding = MediaQuery.of(context).padding.top + kToolbarHeight + 120;
-    
-    // CAMBIO IMPORTANTE: Eliminado DefaultTabController
+    final topPadding = MediaQuery.of(context).padding.top;
+    final totalHeaderHeight = topPadding + _topSectionHeight + _spacingHeight + _tabBarHeight;
+
     return Scaffold(
-      extendBodyBehindAppBar: true, 
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0A0E14).withOpacity(0.85), 
-        flexibleSpace: ClipRRect(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10), 
-            child: Container(color: Colors.transparent),
-          ),
-        ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
+      extendBodyBehindAppBar: true,
+      body: NotificationListener<UserScrollNotification>(
+        onNotification: (notification) {
+          if (notification.metrics.axis == Axis.vertical) {
+            _autoShowTimer?.cancel();
+
+            // ELIMINADO EL UMBRAL DE 50PX PARA QUE SEA FLUIDO SIEMPRE
+
+            if (notification.direction == ScrollDirection.forward) {
+               // SCROLL HACIA ABAJO (Visualmente contenido sube) -> OCULTAR
+               if (_isHeaderExpanded) setState(() => _isHeaderExpanded = false);
+            } else if (notification.direction == ScrollDirection.reverse) {
+               // SCROLL HACIA ARRIBA (Visualmente contenido baja) -> OCULTAR (Modo inmersivo)
+               // El usuario pidió "al scrolear para abajo TAMBIEN se oculte", implicando que al subir ya se ocultaba.
+               if (_isHeaderExpanded) setState(() => _isHeaderExpanded = false);
+            } else if (notification.direction == ScrollDirection.idle) {
+               // PARADA -> MOSTRAR (Show on Stop)
+               _autoShowTimer = Timer(const Duration(milliseconds: 100), () { 
+                if (mounted && !_isHeaderExpanded) {
+                  setState(() => _isHeaderExpanded = true);
+                }
+              });
+            }
+          }
+          return false;
+        },
+        child: Stack(
           children: [
-            Image.asset('assets/icon/app_logo.png', width: 32, height: 32),
-            const SizedBox(width: 8),
-            Text(l10n?.appTitle ?? 'VoxGamer'),
-          ],
-        ),
-        actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
-            onSelected: (value) { 
-              if (value == 'update') _updateCatalog(); 
-              if (value == 'update_upcoming') _triggerUpcomingSync();
-              if (value == 'clear_cache') _clearCache(context);
-              if (value == 'toggle_adult') _toggleAdultContent();
-            },
-            color: const Color(0xFF1E232F),
-            itemBuilder: (context) {
-              final l10n = AppLocalizations.of(context)!;
-              return [
-                PopupMenuItem(value: 'update', child: Row(children: [const Icon(Icons.cloud_sync, color: Colors.blueAccent), const SizedBox(width: 8), Text(l10n.syncQuick, style: const TextStyle(color: Colors.white))])),
-                PopupMenuItem(value: 'update_upcoming', child: Row(children: [const Icon(Icons.rocket, color: Colors.purpleAccent), const SizedBox(width: 8), Text(l10n.syncUpcoming, style: const TextStyle(color: Colors.white))])),
-                PopupMenuItem(value: 'toggle_adult', child: Row(children: [const Icon(Icons.explicit, color: Colors.redAccent), const SizedBox(width: 8), Text(l10n.filterAdult, style: const TextStyle(color: Colors.white))])),
-                PopupMenuItem(value: 'clear_cache', child: Row(children: [const Icon(Icons.cleaning_services, color: Colors.orangeAccent), const SizedBox(width: 8), Text(l10n.clearCache, style: const TextStyle(color: Colors.white))])),
-              ];
-            },
-          ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(120), 
-          child: Column(
-            children: [
-              if (!_isSyncing)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          decoration: BoxDecoration(boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 4))]),
-                          child: TextField(
-                            controller: _searchController,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: InputDecoration(
-                              hintText: l10n?.searchHint ?? '...',
-                              hintStyle: TextStyle(color: Colors.grey.shade500),
-                              prefixIcon: const Icon(Icons.search, color: Color(0xFF7C4DFF)),
-                              fillColor: const Color(0xFF1E232F),
-                              suffixIcon: _searchController.text.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, color: Colors.grey), onPressed: () { _searchController.clear(); _refreshLists(); }) : null,
+            // CAPA 1: LISTAS (Contenido)
+            Padding(
+              padding: EdgeInsets.zero,
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  GameListTab(
+                    key: _gamesTabKey,
+                    tipo: 'game',
+                    dataService: _dataService,
+                    parent: this,
+                    topPadding: 0, 
+                  ),
+                  GameListTab(
+                    key: _dlcsTabKey,
+                    tipo: 'dlc',
+                    dataService: _dataService,
+                    parent: this,
+                    topPadding: 0,
+                  ),
+                  UpcomingGamesTab(
+                    key: _upcomingTabKey,
+                    topPadding: 0,
+                    dataService: _dataService,
+                    parent: this, 
+                  ), 
+                ],
+              ),
+            ),
+
+            // CAPA 2: HEADER ANIMADO (Stack)
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              top: _isHeaderExpanded ? 0 : -(_topSectionHeight + _spacingHeight), 
+              left: 0,
+              right: 0,
+              height: totalHeaderHeight, 
+              child: ClipRRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          const Color(0xFF0A0E14).withOpacity(0.8), 
+                          const Color(0xFF0A0E14).withOpacity(0.6),
+                        ],
+                      ),
+                      border: Border(
+                        bottom: BorderSide(color: Colors.white.withOpacity(0.05), width: 1)
+                      ),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4))
+                      ]
+                    ),
+                    child: SafeArea(
+                      bottom: false,
+                      child: Column(
+                        children: [
+                          // 1. TOP SECTION -> ANIMATED OPACITY
+                          Expanded(
+                            child: AnimatedOpacity(
+                              opacity: _isHeaderExpanded ? 1.0 : 0.0,
+                              duration: const Duration(milliseconds: 200), // Fade más rápido que el slide
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  // Logo Row
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Image.asset('assets/icon/app_logo.png', width: 28, height: 28),
+                                            const SizedBox(width: 8),
+                                            Text(l10n?.appTitle ?? 'VoxGamer', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+                                          ],
+                                        ),
+                                        PopupMenuButton<String>(
+                                          icon: const Icon(Icons.more_vert, color: Colors.white70),
+                                          onSelected: (value) { 
+                                            if (value == 'update') _updateCatalog(); 
+                                            if (value == 'update_upcoming') _triggerUpcomingSync();
+                                            if (value == 'clear_cache') _clearCache(context);
+                                            if (value == 'toggle_adult') _toggleAdultContent();
+                                          },
+                                          color: const Color(0xFF1E232F),
+                                          itemBuilder: (context) {
+                                            final l10n = AppLocalizations.of(context)!;
+                                            return [
+                                              PopupMenuItem(value: 'update', child: Row(children: [const Icon(Icons.cloud_sync, color: Colors.blueAccent), const SizedBox(width: 8), Text(l10n.syncQuick, style: const TextStyle(color: Colors.white))])),
+                                              PopupMenuItem(value: 'update_upcoming', child: Row(children: [const Icon(Icons.rocket, color: Colors.purpleAccent), const SizedBox(width: 8), Text(l10n.syncUpcoming, style: const TextStyle(color: Colors.white))])),
+                                              PopupMenuItem(value: 'toggle_adult', child: Row(children: [const Icon(Icons.explicit, color: Colors.redAccent), const SizedBox(width: 8), Text(l10n.filterAdult, style: const TextStyle(color: Colors.white))])),
+                                              PopupMenuItem(value: 'clear_cache', child: Row(children: [const Icon(Icons.cleaning_services, color: Colors.orangeAccent), const SizedBox(width: 8), Text(l10n.clearCache, style: const TextStyle(color: Colors.white))])),
+                                            ];
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  // Search Row
+                                  if (!_isSyncing)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Container(
+                                              height: 40,
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF1E232F).withOpacity(0.5), 
+                                                borderRadius: BorderRadius.circular(12),
+                                              ),
+                                              child: TextField(
+                                                controller: _searchController,
+                                                style: const TextStyle(color: Colors.white, fontSize: 14),
+                                                decoration: InputDecoration(
+                                                  hintText: l10n?.searchHint ?? '...',
+                                                  hintStyle: TextStyle(color: Colors.grey.shade500),
+                                                  prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFF7C4DFF)),
+                                                  border: InputBorder.none,
+                                                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                                                  suffixIcon: _searchController.text.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, size: 18, color: Colors.grey), onPressed: () { _searchController.clear(); _refreshLists(); }) : null,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          InkWell(
+                                            onTap: _showFilterDialog,
+                                            borderRadius: BorderRadius.circular(12),
+                                            child: Container(
+                                              width: 40, height: 40,
+                                              decoration: BoxDecoration(
+                                                color: hasActiveFilters() ? Theme.of(context).colorScheme.primary : const Color(0xFF1E232F).withOpacity(0.5),
+                                                borderRadius: BorderRadius.circular(12),
+                                                border: Border.all(color: hasActiveFilters() ? Colors.transparent : Colors.grey.shade800),
+                                              ),
+                                              child: const Icon(Icons.tune, size: 20, color: Colors.white),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      InkWell(
-                        onTap: _showFilterDialog,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: hasActiveFilters() ? Theme.of(context).colorScheme.primary : const Color(0xFF1E232F),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: hasActiveFilters() ? Colors.transparent : Colors.grey.shade800),
-                            boxShadow: [BoxShadow(color: hasActiveFilters() ? Theme.of(context).colorScheme.primary.withOpacity(0.4) : Colors.transparent, blurRadius: 10, spreadRadius: 1)]
+                          // 2. BOTTOM SECTION (TabBar)
+                          SizedBox(height: _spacingHeight), // Espacio dinámico que se oculta al subir
+                          SizedBox(
+                            height: _tabBarHeight,
+                            child: TabBar(
+                              controller: _tabController,
+                              isScrollable: true,
+                              tabAlignment: TabAlignment.center, 
+                              labelPadding: const EdgeInsets.symmetric(horizontal: 24),
+                              indicatorColor: Theme.of(context).colorScheme.primary,
+                              labelColor: Colors.white,
+                              unselectedLabelColor: Colors.grey,
+                              tabs: [
+                                Tab(text: l10n?.tabGames ?? "JUEGOS"),
+                                Tab(text: l10n?.tabDlcs ?? "DLCs"),
+                                Tab(text: l10n?.tabUpcoming ?? "PRÓXIMOS"), 
+                              ],
+                            ),
                           ),
-                          child: const Icon(Icons.tune, color: Colors.white),
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              // CAMBIO VISUAL: Padding extra para separar los tabs
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: TabBar(
-                  controller: _tabController,
-                  isScrollable: true,
-                  tabAlignment: TabAlignment.center, 
-                  labelPadding: const EdgeInsets.symmetric(horizontal: 24), // Más espacio
-                  tabs: [
-                    Tab(text: l10n?.tabGames ?? "JUEGOS"), // Iconos quitados para look más limpio
-                    Tab(text: l10n?.tabDlcs ?? "DLCs"),
-                    Tab(text: l10n?.tabUpcoming ?? "PRÓXIMOS"), 
-                  ],
-                ),
               ),
-            ],
-          ),
+            ),
+            
+            if (_isSyncing)
+               MinigameOverlay(progress: _syncProgress),
+          ],
         ),
-      ),
-      body: Stack(
-        children: [
-          TabBarView(
-            controller: _tabController, // Asignamos el controlador manual
-            children: [
-              GameListTab(
-                key: _gamesTabKey,
-                tipo: 'game',
-                dataService: _dataService,
-                parent: this,
-                topPadding: topPadding, 
-              ),
-              GameListTab(
-                key: _dlcsTabKey,
-                tipo: 'dlc',
-                dataService: _dataService,
-                parent: this,
-                topPadding: topPadding, 
-              ),
-              UpcomingGamesTab(
-                key: _upcomingTabKey,
-                topPadding: topPadding,
-                dataService: _dataService,
-                parent: this, 
-              ), 
-            ],
-          ),
-          if (_isSyncing)
-             MinigameOverlay(progress: _syncProgress),
-        ],
       ),
     );
   }
 }
 
-// ... (Resto de clases UpcomingGamesTab, GameListTab se mantienen igual)
-// Solo repito la estructura base para cerrar el archivo correctamente.
-
 class UpcomingGamesTab extends StatefulWidget {
-  final double topPadding;
+  final double topPadding; 
   final DataService dataService;
   final HomePageState parent; 
 
@@ -1241,7 +1330,7 @@ class UpcomingGamesTab extends StatefulWidget {
 }
 
 class UpcomingGamesTabState extends State<UpcomingGamesTab> with AutomaticKeepAliveClientMixin {
-  bool _isLoading = true; // CAMBIO: Iniciamos en true para mostrar carga de inmediato
+  bool _isLoading = true; 
   List<Game> _games = [];
 
   @override
@@ -1258,23 +1347,22 @@ class UpcomingGamesTabState extends State<UpcomingGamesTab> with AutomaticKeepAl
   }
 
   Future<void> _loadGames() async {
-    // Si no es el primer inicio, podemos poner isLoading a true para refrescar UI
     if (mounted) setState(() => _isLoading = true);
 
     final games = await widget.dataService.getUpcomingGames(
       query: widget.parent.searchController.text.isNotEmpty ? widget.parent.searchController.text : null,
-      voiceLanguages: widget.parent.selectedVoiceLanguages, // ACTUALIZADO A LISTAS
+      voiceLanguages: widget.parent.selectedVoiceLanguages, 
       textLanguages: widget.parent.selectedTextLanguages,
       years: widget.parent.selectedYears,
       genres: widget.parent.selectedGenres,
       platforms: widget.parent.selectedPlatforms,
       sortBy: widget.parent.selectedSort,
-      fastMode: true, // OPTIMIZACION
+      fastMode: true, 
     );
     if (mounted) {
       setState(() {
         _games = games;
-        _isLoading = false; // CAMBIO: Marcamos como terminado
+        _isLoading = false; 
       });
     }
   }
@@ -1297,10 +1385,12 @@ class UpcomingGamesTabState extends State<UpcomingGamesTab> with AutomaticKeepAl
     super.build(context);
     final l10n = AppLocalizations.of(context)!;
     
-    // CAMBIO: Si está cargando, mostramos spinner en lugar de "Vacío"
+    // Actualizamos el padding total para que la lista empiece en el sitio correcto
+    final listTopPadding = MediaQuery.of(context).padding.top + 100.0 + 50.0 + 8.0 + 8.0; // Ajustado a nueva altura
+
     if (_isLoading && _games.isEmpty) {
        return Padding(
-         padding: EdgeInsets.only(top: widget.topPadding + 50),
+         padding: EdgeInsets.only(top: listTopPadding),
          child: const Center(child: CircularProgressIndicator()),
        );
     }
@@ -1312,7 +1402,7 @@ class UpcomingGamesTabState extends State<UpcomingGamesTab> with AutomaticKeepAl
 
       return Center(
         child: Padding(
-          padding: EdgeInsets.only(top: widget.topPadding + 32, left: 32, right: 32),
+          padding: EdgeInsets.only(top: listTopPadding, left: 32, right: 32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -1336,13 +1426,14 @@ class UpcomingGamesTabState extends State<UpcomingGamesTab> with AutomaticKeepAl
       children: [
         if (_isLoading)
           Padding(
-            padding: EdgeInsets.only(top: widget.topPadding + 10, bottom: 10),
+            padding: EdgeInsets.only(top: listTopPadding, bottom: 10),
             child: const LinearProgressIndicator(minHeight: 2, color: Colors.purpleAccent),
           ),
         
         Expanded(
           child: ListView.builder(
-            padding: EdgeInsets.fromLTRB(12, (_isLoading ? 0 : widget.topPadding + 10), 12, 8),
+            // Padding superior ajustado para que empiece DEBAJO del header expandido
+            padding: EdgeInsets.fromLTRB(12, (_isLoading ? 0 : listTopPadding), 12, 8),
             itemCount: _games.length + (widget.parent.hasActiveFilters() ? 1 : 0),
             itemBuilder: (context, index) {
               int gameIndex = index;
@@ -1507,7 +1598,7 @@ class GameListTab extends StatefulWidget {
   final String tipo;
   final DataService dataService;
   final HomePageState parent;
-  final double topPadding;
+  final double topPadding; // No usado en Stack pero mantenemos firma
 
   const GameListTab({super.key, required this.tipo, required this.dataService, required this.parent, required this.topPadding});
 
@@ -1559,14 +1650,14 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
         limit: _limit,
         offset: _page * _limit,
         query: widget.parent.searchController.text.isNotEmpty ? widget.parent.searchController.text : null,
-        voiceLanguages: widget.parent.selectedVoiceLanguages, // ACTUALIZADO A LISTAS
+        voiceLanguages: widget.parent.selectedVoiceLanguages, 
         textLanguages: widget.parent.selectedTextLanguages,
         years: widget.parent.selectedYears,
         genres: widget.parent.selectedGenres,
         platforms: widget.parent.selectedPlatforms,
         tipo: widget.tipo, 
         sortBy: widget.parent.selectedSort,
-        fastMode: true, // OPTIMIZACION
+        fastMode: true, 
       );
 
       if (!mounted) return;
@@ -1600,13 +1691,14 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
   Widget build(BuildContext context) {
     super.build(context);
     final l10n = AppLocalizations.of(context);
+    final listTopPadding = MediaQuery.of(context).padding.top + 100.0 + 50.0 + 8.0 + 8.0; // Ajustado a nueva altura + gap
     
     if (_games.isEmpty && !_isLoading) {
       if (widget.parent.isSyncing) return const SizedBox(); 
       
       return Center(
         child: Padding(
-          padding: EdgeInsets.only(top: widget.topPadding + 32, left: 32, right: 32),
+          padding: EdgeInsets.only(top: listTopPadding, left: 32, right: 32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -1624,7 +1716,7 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
         Expanded(
           child: ListView.builder(
             controller: _scrollController,
-            padding: EdgeInsets.fromLTRB(12, widget.topPadding + 10, 12, 8),
+            padding: EdgeInsets.fromLTRB(12, listTopPadding, 12, 8),
             itemCount: _games.length + (_hasMore ? 1 : 0) + (widget.parent.hasActiveFilters() ? 1 : 0),
             itemBuilder: (context, index) {
               int gameIndex = index;
@@ -1674,7 +1766,7 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
       scoreColor = _getScoreColor(game.metacritic!);
     }
     
-    // LÓGICA DE PLATAFORMAS CONSOLIDADA (IGUAL QUE EN UPCOMING)
+    // LÓGICA DE PLATAFORMAS CONSOLIDADA
     Widget buildPlatforms() {
       if (game.plataformas.isEmpty) return const SizedBox.shrink();
       
@@ -1795,7 +1887,6 @@ class GameListTabState extends State<GameListTab> with AutomaticKeepAliveClientM
                              ),
                         ],
                       ),
-                      // PLATAFORMAS CON LA LÓGICA UNIFICADA
                       if (game.plataformas.isNotEmpty) ...[
                         const SizedBox(height: 6),
                         buildPlatforms(),

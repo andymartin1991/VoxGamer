@@ -23,7 +23,7 @@ import 'services/database_helper.dart';
 import 'services/background_service.dart';
 import 'screens/game_detail_page.dart';
 import 'widgets/minigame_overlay.dart'; 
-import 'widgets/pegi_badge.dart'; // Importamos el widget reutilizable
+import 'widgets/pegi_badge.dart'; 
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -228,12 +228,36 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(_handleTabSelection);
     
-    _requestNotificationPermissions(); 
+    // Eliminamos la llamada directa aquí para secuenciarla mejor
+    // _requestNotificationPermissions(); 
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkAdultStatus(); 
-      _initDeepLinks(); 
+      _initAppSequence();
     });
+    
     _searchController.addListener(_onSearchChanged);
+  }
+
+  // Nueva función para orquestar la inicialización secuencial
+  Future<void> _initAppSequence() async {
+    // 1. Pedir permisos de notificación PRIMERO
+    await _requestNotificationPermissions();
+    
+    // 2. Comprobar edad (si es necesario)
+    if (mounted) {
+      await _checkAdultStatus();
+    }
+    
+    // 3. Inicializar Deep Links y Datos
+    if (mounted) {
+      _initDeepLinks();
+      
+      // La carga de datos se movió de didChangeDependencies a aquí o se revisa
+      if (!_isInitDataLoaded) {
+        _isInitDataLoaded = true;
+        _checkAndLoadInitialData();
+      }
+    }
   }
 
   void _handleTabSelection() {
@@ -376,13 +400,11 @@ class HomePageState extends State<HomePage> with SingleTickerProviderStateMixin,
     }
   }
 
+  // Modificado: Se elimina la carga aquí para centralizarla en _initAppSequence
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_isInitDataLoaded) {
-      _isInitDataLoaded = true;
-      _checkAndLoadInitialData();
-    }
+    // La carga inicial ahora se maneja en _initAppSequence tras los permisos
   }
 
   Future<bool> _wasSyncInterrupted() async {
